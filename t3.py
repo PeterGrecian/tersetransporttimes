@@ -95,6 +95,23 @@ td:first-child {{ color: #4a9eff; text-align: right; }}
 </html>"""
 
 
+def format_json(arrivals):
+    """Format arrivals as JSON."""
+    stops = []
+    for stop_name, direction, minutes in arrivals:
+        stops.append({
+            "stop": stop_name,
+            "direction": direction,
+            "minutes": minutes
+        })
+
+    return json.dumps({
+        "timestamp": datetime.now().strftime('%H:%M'),
+        "route": ROUTE,
+        "arrivals": stops
+    })
+
+
 def lambda_handler(event, context):
     """AWS Lambda entry point."""
     api_key = os.environ.get('TFL_API_KEY')
@@ -110,6 +127,13 @@ def lambda_handler(event, context):
     # Check Accept header for format preference
     headers = event.get('headers', {}) or {}
     accept = headers.get('Accept', headers.get('accept', 'text/html'))
+
+    if 'application/json' in accept:
+        return {
+            'statusCode': 200,
+            'body': format_json(arrivals),
+            'headers': {'Content-Type': 'application/json'}
+        }
 
     if 'text/plain' in accept:
         return {

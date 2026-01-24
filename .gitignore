@@ -14,3 +14,15 @@ __pycache__/
 # IDE
 .vscode/
 .idea/
+
+# Android
+android/.gradle/
+android/.idea/
+android/local.properties
+android/build/
+android/app/build/
+android/*.iml
+android/.DS_Store
+android/captures/
+android/.externalNativeBuild/
+android/.cxx/
