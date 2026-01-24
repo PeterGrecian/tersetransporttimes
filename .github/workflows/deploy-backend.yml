@@ -1,0 +1,84 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches:
+      - main
+      - 'claude/**'
+    paths:
+      - 't3.py'
+      - 'update'
+      - '.github/workflows/deploy-backend.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Validate Python syntax
+        run: python3 -m py_compile t3.py
+
+      - name: Deploy Lambda function
+        run: |
+          zip t3.zip t3.py
+          aws lambda update-function-code \
+            --function-name t3 \
+            --zip-file fileb://t3.zip
+          rm t3.zip
+
+      - name: Get API Gateway URL
+        id: get-url
+        run: |
+          FUNCTION_NAME="t3"
+
+          # Get the Lambda function's URL config (if using function URLs)
+          FUNCTION_URL=$(aws lambda get-function-url-config --function-name $FUNCTION_NAME --query 'FunctionUrl' --output text 2>/dev/null || echo "")
+
+          if [ -n "$FUNCTION_URL" ]; then
+            echo "api_url=$FUNCTION_URL" >> $GITHUB_OUTPUT
+            echo "### 🚀 Deployment Successful!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**API Endpoint:** \`$FUNCTION_URL\`" >> $GITHUB_STEP_SUMMARY
+          else
+            # Try to get API Gateway URL
+            API_ID=$(aws apigatewayv2 get-apis --query "Items[?Name=='t3-api'].ApiId" --output text)
+            if [ -n "$API_ID" ]; then
+              API_URL="https://${API_ID}.execute-api.${{ secrets.AWS_REGION }}.amazonaws.com/"
+              echo "api_url=$API_URL" >> $GITHUB_OUTPUT
+              echo "### 🚀 Deployment Successful!" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "**API Endpoint:** \`$API_URL\`" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "### ⚠️ Deployed but couldn't find API URL" >> $GITHUB_STEP_SUMMARY
+              echo "Check AWS Console for your API Gateway endpoint" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Update Android app:**" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`kotlin" >> $GITHUB_STEP_SUMMARY
+          echo "// android/app/src/main/java/com/tersetransporttimes/api/ApiConfig.kt" >> $GITHUB_STEP_SUMMARY
+          echo "private const val BASE_URL = \"<YOUR_API_URL>\"" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Test endpoint
+        if: steps.get-url.outputs.api_url != ''
+        run: |
+          echo "Testing JSON endpoint..."
+          curl -H "Accept: application/json" "${{ steps.get-url.outputs.api_url }}" || true
