@@ -1,0 +1,23 @@
+#!/bin/bash -ex
+# Quick deploy script for t3 Lambda
+
+# Validate Python
+if ! python3 -m py_compile t3.py; then
+  echo "Python syntax error, not updating"
+  exit 1
+fi
+rm -rf __pycache__
+
+# Create zip
+zip t3.zip t3.py
+
+# Update Lambda function
+fn=${1:-t3}
+aws lambda update-function-code --zip-file fileb://$PWD/t3.zip \
+  --function-name $fn | grep -E "(CodeSize|LastModified)"
+
+# Cleanup
+rm t3.zip
+
+echo "Deployed to $fn"
+echo "aws logs tail /aws/lambda/$fn --follow"
