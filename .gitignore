@@ -1,9 +1,27 @@
-.gradle
-/build
-/app/build
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/.terraform.lock.hcl
+terraform/*.zip
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.env
+
+# IDE
+.vscode/
+.idea/
 *.iml
-.idea
+
+# Android
+.gradle/
+/build/
+/app/build/
+local.properties
+.cxx/
+.externalNativeBuild/
+captures/
 .DS_Store
-/local.properties
-.cxx
-.externalNativeBuild

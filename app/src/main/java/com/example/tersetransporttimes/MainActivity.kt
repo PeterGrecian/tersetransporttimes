@@ -98,9 +98,8 @@ fun BusTimesScreen() {
 
 private suspend fun fetchBusTimes(): String = withContext(Dispatchers.IO) {
     val client = OkHttpClient()
-    // REPLACE with your actual Lambda/API URL
     val request = Request.Builder()
-        .url("https://example.com/api/bus") 
+        .url("https://vz66vhhtb9.execute-api.eu-west-1.amazonaws.com/")
         .header("Accept", "text/plain")
         .build()
 

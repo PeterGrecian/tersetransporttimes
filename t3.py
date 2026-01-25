@@ -66,6 +66,23 @@ def format_text(arrivals):
     return "\n".join(lines)
 
 
+def format_json(arrivals):
+    """Format arrivals as JSON for API consumers."""
+    return json.dumps({
+        "route": ROUTE,
+        "timestamp": datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+        "arrivals": [
+            {
+                "stationName": stop_name,
+                "direction": direction,
+                "directionShort": direction[0].upper() if direction else "?",
+                "minutes": minutes
+            }
+            for stop_name, direction, minutes in arrivals
+        ]
+    })
+
+
 def format_html(arrivals):
     """Format arrivals as HTML."""
     if not arrivals:
@@ -100,28 +117,42 @@ def lambda_handler(event, context):
     api_key = os.environ.get('TFL_API_KEY')
     arrivals, error = fetch_arrivals(api_key)
 
+    # Common CORS headers for all responses
+    cors_headers = {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Content-Type,Accept',
+        'Access-Control-Allow-Methods': 'GET,OPTIONS'
+    }
+
     if error:
         return {
             'statusCode': 500,
             'body': json.dumps({'error': error}),
-            'headers': {'Content-Type': 'application/json'}
+            'headers': {'Content-Type': 'application/json', **cors_headers}
         }
 
     # Check Accept header for format preference
     headers = event.get('headers', {}) or {}
     accept = headers.get('Accept', headers.get('accept', 'text/html'))
 
+    if 'application/json' in accept:
+        return {
+            'statusCode': 200,
+            'body': format_json(arrivals),
+            'headers': {'Content-Type': 'application/json', **cors_headers}
+        }
+
     if 'text/plain' in accept:
         return {
             'statusCode': 200,
             'body': format_text(arrivals),
-            'headers': {'Content-Type': 'text/plain'}
+            'headers': {'Content-Type': 'text/plain', **cors_headers}
         }
 
     return {
         'statusCode': 200,
         'body': format_html(arrivals),
-        'headers': {'Content-Type': 'text/html'}
+        'headers': {'Content-Type': 'text/html', **cors_headers}
     }
 
 
