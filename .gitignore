@@ -1,16 +1,9 @@
-# Terraform
-terraform/.terraform/
-terraform/*.tfstate
-terraform/*.tfstate.backup
-terraform/.terraform.lock.hcl
-terraform/*.zip
-
-# Python
-__pycache__/
-*.py[cod]
-*.so
-.env
-
-# IDE
-.vscode/
-.idea/
+.gradle
+/build
+/app/build
+*.iml
+.idea
+.DS_Store
+/local.properties
+.cxx
+.externalNativeBuild
