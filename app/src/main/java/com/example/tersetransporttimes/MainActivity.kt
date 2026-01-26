@@ -55,7 +55,7 @@ fun BusTimesScreen() {
     var busData by remember { mutableStateOf<BusData?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
-    var countdown by remember { mutableIntStateOf(60) }
+    var countdown by remember { mutableIntStateOf(30) }
 
     // Auto-refresh countdown
     LaunchedEffect(countdown) {
@@ -73,7 +73,7 @@ fun BusTimesScreen() {
                 error = e.message
                 isLoading = false
             }
-            countdown = 60
+            countdown = 30
         }
     }
 
@@ -104,7 +104,15 @@ fun BusTimesScreen() {
                 color = Color.White,
                 fontSize = 20.sp,
                 fontFamily = FontFamily.SansSerif,
-                modifier = Modifier.padding(top = 16.dp, bottom = 48.dp)
+                modifier = Modifier.padding(top = 16.dp)
+            )
+
+            // Refresh countdown
+            Text(
+                text = "refresh in ${countdown}s",
+                color = Color(0xFF888888),
+                fontSize = 14.sp,
+                modifier = Modifier.padding(top = 8.dp, bottom = 40.dp)
             )
 
             if (isLoading && busData == null) {
@@ -136,14 +144,6 @@ fun BusTimesScreen() {
                         destination = data.outboundDest
                     )
 
-                    Spacer(modifier = Modifier.weight(1f))
-
-                    // Refresh countdown
-                    Text(
-                        text = "refresh in ${countdown}s",
-                        color = Color(0xFF444444),
-                        fontSize = 14.sp
-                    )
                 }
             }
         }
