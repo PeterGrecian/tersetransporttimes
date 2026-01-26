@@ -3,22 +3,32 @@ package com.example.tersetransporttimes
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONObject
 
-data class Arrival(val minutes: String, val dir: String, val stop: String)
+data class BusData(
+    val inboundMinutes: List<Int>,
+    val outboundMinutes: List<Int>,
+    val inboundDest: String,
+    val outboundDest: String
+)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -31,14 +41,35 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun BusTimesScreen() {
-    var arrivals by remember { mutableStateOf<List<Arrival>>(emptyList()) }
+    var busData by remember { mutableStateOf<BusData?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    var countdown by remember { mutableIntStateOf(60) }
 
+    // Auto-refresh countdown
+    LaunchedEffect(countdown) {
+        if (countdown > 0) {
+            delay(1000)
+            countdown--
+        } else {
+            // Reload data
+            isLoading = true
+            error = null
+            try {
+                busData = fetchBusTimes()
+                isLoading = false
+            } catch (e: Exception) {
+                error = e.message
+                isLoading = false
+            }
+            countdown = 60
+        }
+    }
+
+    // Initial load
     LaunchedEffect(Unit) {
         try {
-            val result = fetchBusTimes()
-            arrivals = parseArrivals(result)
+            busData = fetchBusTimes()
             isLoading = false
         } catch (e: Exception) {
             error = e.message
@@ -50,77 +81,145 @@ fun BusTimesScreen() {
         modifier = Modifier.fillMaxSize(),
         color = Color(0xFF1A1A1A)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // Header
             Text(
-                text = "K2 Bus Times",
+                text = "K2 @ Parklands",
                 color = Color.White,
                 fontSize = 20.sp,
-                fontFamily = FontFamily.Monospace,
-                modifier = Modifier.padding(bottom = 16.dp)
+                fontFamily = FontFamily.SansSerif,
+                modifier = Modifier.padding(top = 16.dp, bottom = 48.dp)
             )
 
-            if (isLoading) {
+            if (isLoading && busData == null) {
                 CircularProgressIndicator(color = Color(0xFF4A9EFF))
-            } else if (error != null) {
+            } else if (error != null && busData == null) {
                 Text(text = "Error: $error", color = Color.Red)
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(
+                    onClick = {
+                        countdown = 0 // Trigger reload
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4A9EFF))
+                ) {
+                    Text("Retry")
+                }
             } else {
-                LazyColumn {
-                    items(arrivals) { arrival ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                        ) {
-                            Text(
-                                text = "${arrival.minutes}m",
-                                color = Color(0xFF4A9EFF),
-                                modifier = Modifier.width(40.dp),
-                                fontFamily = FontFamily.Monospace
-                            )
-                            Text(
-                                text = arrival.dir,
-                                color = Color.LightGray,
-                                modifier = Modifier.width(30.dp),
-                                fontFamily = FontFamily.Monospace
-                            )
-                            Text(
-                                text = arrival.stop,
-                                color = Color.White,
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
-                    }
+                busData?.let { data ->
+                    // Inbound section
+                    DirectionSection(
+                        times = data.inboundMinutes,
+                        destination = data.inboundDest
+                    )
+
+                    Spacer(modifier = Modifier.height(48.dp))
+
+                    // Outbound section
+                    DirectionSection(
+                        times = data.outboundMinutes,
+                        destination = data.outboundDest
+                    )
+
+                    Spacer(modifier = Modifier.weight(1f))
+
+                    // Refresh countdown
+                    Text(
+                        text = "refresh in ${countdown}s",
+                        color = Color(0xFF444444),
+                        fontSize = 14.sp
+                    )
                 }
             }
         }
     }
 }
 
-private suspend fun fetchBusTimes(): String = withContext(Dispatchers.IO) {
+@Composable
+fun DirectionSection(times: List<Int>, destination: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Row(
+            horizontalArrangement = Arrangement.Center,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            if (times.isEmpty()) {
+                TimeBox(minutes = null, isNext = false)
+            } else {
+                times.forEachIndexed { index, minutes ->
+                    TimeBox(minutes = minutes, isNext = index == 0)
+                    if (index < times.size - 1) {
+                        Spacer(modifier = Modifier.width(16.dp))
+                    }
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        Text(
+            text = "towards $destination",
+            color = Color(0xFF666666),
+            fontSize = 12.sp
+        )
+    }
+}
+
+@Composable
+fun TimeBox(minutes: Int?, isNext: Boolean) {
+    val borderColor = if (isNext) Color.White else Color(0xFF4A9EFF)
+    val textColor = if (isNext) Color.White else Color(0xFF4A9EFF)
+    val fontWeight = if (isNext) FontWeight.Bold else FontWeight.Normal
+
+    Box(
+        modifier = Modifier
+            .border(2.dp, borderColor, RoundedCornerShape(12.dp))
+            .padding(horizontal = 24.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = minutes?.toString() ?: "--",
+            color = textColor,
+            fontSize = 64.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = fontWeight,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+private suspend fun fetchBusTimes(): BusData = withContext(Dispatchers.IO) {
     val client = OkHttpClient()
     val request = Request.Builder()
-        .url("https://vz66vhhtb9.execute-api.eu-west-1.amazonaws.com/")
-        .header("Accept", "text/plain")
+        .url("https://w3.petergrecian.co.uk/t3")
+        .header("Accept", "application/json")
         .build()
 
     client.newCall(request).execute().use { response ->
         if (!response.isSuccessful) throw Exception("Unexpected code $response")
-        response.body?.string() ?: ""
-    }
-}
+        val json = JSONObject(response.body?.string() ?: "{}")
 
-private fun parseArrivals(text: String): List<Arrival> {
-    // Basic parser for the format: "  5m  N  Stop Name"
-    return text.lines()
-        .filter { it.contains("m ") }
-        .mapNotNull { line ->
-            try {
-                val parts = line.trim().split(Regex("\\s+"), limit = 3)
-                if (parts.size >= 3) {
-                    Arrival(parts[0].replace("m", ""), parts[1], parts[2])
-                } else null
-            } catch (e: Exception) {
-                null
-            }
+        val inbound = json.getJSONObject("inbound")
+        val outbound = json.getJSONObject("outbound")
+
+        val inboundMinutes = mutableListOf<Int>()
+        val inboundArr = inbound.getJSONArray("minutes")
+        for (i in 0 until inboundArr.length()) {
+            inboundMinutes.add(inboundArr.getInt(i))
         }
+
+        val outboundMinutes = mutableListOf<Int>()
+        val outboundArr = outbound.getJSONArray("minutes")
+        for (i in 0 until outboundArr.length()) {
+            outboundMinutes.add(outboundArr.getInt(i))
+        }
+
+        BusData(
+            inboundMinutes = inboundMinutes,
+            outboundMinutes = outboundMinutes,
+            inboundDest = inbound.getString("destination"),
+            outboundDest = outbound.getString("destination")
+        )
+    }
 }
