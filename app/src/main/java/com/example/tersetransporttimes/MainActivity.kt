@@ -24,11 +24,22 @@ import okhttp3.Request
 import org.json.JSONObject
 
 data class BusData(
-    val inboundMinutes: List<Int>,
-    val outboundMinutes: List<Int>,
+    val inboundSeconds: List<Int>,
+    val outboundSeconds: List<Int>,
     val inboundDest: String,
     val outboundDest: String
 )
+
+fun secondsToQuarterMinutes(seconds: Int): String {
+    val minutes = seconds / 60
+    val remainder = seconds % 60
+    return when {
+        remainder < 15 -> "$minutes"
+        remainder < 30 -> "$minutes¼"
+        remainder < 45 -> "$minutes½"
+        else -> "$minutes¾"
+    }
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -113,7 +124,7 @@ fun BusTimesScreen() {
                 busData?.let { data ->
                     // Inbound section
                     DirectionSection(
-                        times = data.inboundMinutes,
+                        seconds = data.inboundSeconds,
                         destination = data.inboundDest
                     )
 
@@ -121,7 +132,7 @@ fun BusTimesScreen() {
 
                     // Outbound section
                     DirectionSection(
-                        times = data.outboundMinutes,
+                        seconds = data.outboundSeconds,
                         destination = data.outboundDest
                     )
 
@@ -140,18 +151,18 @@ fun BusTimesScreen() {
 }
 
 @Composable
-fun DirectionSection(times: List<Int>, destination: String) {
+fun DirectionSection(seconds: List<Int>, destination: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Row(
             horizontalArrangement = Arrangement.Center,
             modifier = Modifier.fillMaxWidth()
         ) {
-            if (times.isEmpty()) {
-                TimeBox(minutes = null, isNext = false)
+            if (seconds.isEmpty()) {
+                TimeBox(displayText = null, isNext = false)
             } else {
-                times.forEachIndexed { index, minutes ->
-                    TimeBox(minutes = minutes, isNext = index == 0)
-                    if (index < times.size - 1) {
+                seconds.forEachIndexed { index, secs ->
+                    TimeBox(displayText = secondsToQuarterMinutes(secs), isNext = index == 0)
+                    if (index < seconds.size - 1) {
                         Spacer(modifier = Modifier.width(16.dp))
                     }
                 }
@@ -167,7 +178,7 @@ fun DirectionSection(times: List<Int>, destination: String) {
 }
 
 @Composable
-fun TimeBox(minutes: Int?, isNext: Boolean) {
+fun TimeBox(displayText: String?, isNext: Boolean) {
     val borderColor = if (isNext) Color.White else Color(0xFF4A9EFF)
     val textColor = if (isNext) Color.White else Color(0xFF4A9EFF)
     val fontWeight = if (isNext) FontWeight.Bold else FontWeight.Normal
@@ -179,7 +190,7 @@ fun TimeBox(minutes: Int?, isNext: Boolean) {
         contentAlignment = Alignment.Center
     ) {
         Text(
-            text = minutes?.toString() ?: "--",
+            text = displayText ?: "--",
             color = textColor,
             fontSize = 64.sp,
             fontFamily = FontFamily.Monospace,
@@ -203,21 +214,21 @@ private suspend fun fetchBusTimes(): BusData = withContext(Dispatchers.IO) {
         val inbound = json.getJSONObject("inbound")
         val outbound = json.getJSONObject("outbound")
 
-        val inboundMinutes = mutableListOf<Int>()
-        val inboundArr = inbound.getJSONArray("minutes")
+        val inboundSeconds = mutableListOf<Int>()
+        val inboundArr = inbound.getJSONArray("seconds")
         for (i in 0 until inboundArr.length()) {
-            inboundMinutes.add(inboundArr.getInt(i))
+            inboundSeconds.add(inboundArr.getInt(i))
         }
 
-        val outboundMinutes = mutableListOf<Int>()
-        val outboundArr = outbound.getJSONArray("minutes")
+        val outboundSeconds = mutableListOf<Int>()
+        val outboundArr = outbound.getJSONArray("seconds")
         for (i in 0 until outboundArr.length()) {
-            outboundMinutes.add(outboundArr.getInt(i))
+            outboundSeconds.add(outboundArr.getInt(i))
         }
 
         BusData(
-            inboundMinutes = inboundMinutes,
-            outboundMinutes = outboundMinutes,
+            inboundSeconds = inboundSeconds,
+            outboundSeconds = outboundSeconds,
             inboundDest = inbound.getString("destination"),
             outboundDest = outbound.getString("destination")
         )
