@@ -1,0 +1,2 @@
+#!/bin/bash
+/mnt/c/Users/tot/AppData/Local/Android/Sdk/platform-tools/adb.exe install -r 'C:\Users\tot\StudioProjects\tersetransporttimes\app\build\outputs\apk\debug\app-debug.apk'

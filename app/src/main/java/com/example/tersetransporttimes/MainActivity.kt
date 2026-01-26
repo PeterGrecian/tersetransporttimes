@@ -1,8 +1,12 @@
 package com.example.tersetransporttimes
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.location.Location
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -16,12 +20,21 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.ActivityCompat
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
+
+// Parklands bus stop location
+const val PARKLANDS_LAT = 51.39436
+const val PARKLANDS_LON = -0.29321
+const val HOME_RADIUS_METERS = 200f
 
 data class BusData(
     val inboundSeconds: List<Int>,
@@ -41,17 +54,81 @@ fun secondsToQuarterMinutes(seconds: Int): String {
     }
 }
 
+fun distanceToHome(lat: Double, lon: Double): Float {
+    val results = FloatArray(1)
+    Location.distanceBetween(lat, lon, PARKLANDS_LAT, PARKLANDS_LON, results)
+    return results[0]
+}
+
 class MainActivity : ComponentActivity() {
+    private var isNearHome by mutableStateOf<Boolean?>(null)
+
+    private val locationPermissionRequest = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        when {
+            permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+            permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true -> {
+                checkLocation()
+            }
+            else -> {
+                // Permission denied - show both directions
+                isNearHome = false
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Request location permission
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+            == PackageManager.PERMISSION_GRANTED ||
+            ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)
+            == PackageManager.PERMISSION_GRANTED) {
+            checkLocation()
+        } else {
+            locationPermissionRequest.launch(arrayOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            ))
+        }
+
         setContent {
-            BusTimesScreen()
+            BusTimesScreen(isNearHome)
+        }
+    }
+
+    private fun checkLocation() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+            != PackageManager.PERMISSION_GRANTED &&
+            ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)
+            != PackageManager.PERMISSION_GRANTED) {
+            isNearHome = false
+            return
+        }
+
+        val fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+        val cancellationToken = CancellationTokenSource()
+
+        fusedLocationClient.getCurrentLocation(
+            Priority.PRIORITY_HIGH_ACCURACY,
+            cancellationToken.token
+        ).addOnSuccessListener { location ->
+            if (location != null) {
+                val distance = distanceToHome(location.latitude, location.longitude)
+                isNearHome = distance <= HOME_RADIUS_METERS
+            } else {
+                isNearHome = false
+            }
+        }.addOnFailureListener {
+            isNearHome = false
         }
     }
 }
 
 @Composable
-fun BusTimesScreen() {
+fun BusTimesScreen(isNearHome: Boolean?) {
     var busData by remember { mutableStateOf<BusData?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -130,20 +207,27 @@ fun BusTimesScreen() {
                 }
             } else {
                 busData?.let { data ->
-                    // Inbound section
-                    DirectionSection(
-                        seconds = data.inboundSeconds,
-                        destination = data.inboundDest
-                    )
+                    // If near home, only show inbound (to Kingston)
+                    if (isNearHome == true) {
+                        // Only inbound
+                        DirectionSection(
+                            seconds = data.inboundSeconds,
+                            destination = data.inboundDest
+                        )
+                    } else {
+                        // Show both directions
+                        DirectionSection(
+                            seconds = data.inboundSeconds,
+                            destination = data.inboundDest
+                        )
 
-                    Spacer(modifier = Modifier.height(48.dp))
+                        Spacer(modifier = Modifier.height(48.dp))
 
-                    // Outbound section
-                    DirectionSection(
-                        seconds = data.outboundSeconds,
-                        destination = data.outboundDest
-                    )
-
+                        DirectionSection(
+                            seconds = data.outboundSeconds,
+                            destination = data.outboundDest
+                        )
+                    }
                 }
             }
         }
