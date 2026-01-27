@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Location
+import android.media.Ringtone
 import android.media.RingtoneManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -91,12 +92,24 @@ fun determineLocationMode(lat: Double, lon: Double): LocationMode {
     }
 }
 
+var currentRingtone: Ringtone? = null
+
 fun playAlarmSound(context: Context) {
     try {
+        stopAlarmSound() // Stop any existing alarm first
         val alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
             ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-        val ringtone = RingtoneManager.getRingtone(context, alarmUri)
-        ringtone?.play()
+        currentRingtone = RingtoneManager.getRingtone(context, alarmUri)
+        currentRingtone?.play()
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+}
+
+fun stopAlarmSound() {
+    try {
+        currentRingtone?.stop()
+        currentRingtone = null
     } catch (e: Exception) {
         e.printStackTrace()
     }
@@ -357,9 +370,11 @@ fun BusTimesScreen(locationMode: LocationMode?) {
                                         if (armedBusKey == key) {
                                             armedBusKey = null
                                             alarmTriggered = false
+                                            stopAlarmSound()
                                         } else {
                                             armedBusKey = key
                                             alarmTriggered = false
+                                            stopAlarmSound()
                                         }
                                     }
                                 )
@@ -377,9 +392,11 @@ fun BusTimesScreen(locationMode: LocationMode?) {
                                         if (armedBusKey == key) {
                                             armedBusKey = null
                                             alarmTriggered = false
+                                            stopAlarmSound()
                                         } else {
                                             armedBusKey = key
                                             alarmTriggered = false
+                                            stopAlarmSound()
                                         }
                                     }
                                 )
@@ -397,9 +414,11 @@ fun BusTimesScreen(locationMode: LocationMode?) {
                                         if (armedBusKey == key) {
                                             armedBusKey = null
                                             alarmTriggered = false
+                                            stopAlarmSound()
                                         } else {
                                             armedBusKey = key
                                             alarmTriggered = false
+                                            stopAlarmSound()
                                         }
                                     }
                                 )
@@ -417,9 +436,11 @@ fun BusTimesScreen(locationMode: LocationMode?) {
                                         if (armedBusKey == key) {
                                             armedBusKey = null
                                             alarmTriggered = false
+                                            stopAlarmSound()
                                         } else {
                                             armedBusKey = key
                                             alarmTriggered = false
+                                            stopAlarmSound()
                                         }
                                     }
                                 )
