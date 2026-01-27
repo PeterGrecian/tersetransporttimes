@@ -2,10 +2,12 @@ package com.example.tersetransporttimes
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Location
 import android.media.Ringtone
 import android.media.RingtoneManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -133,6 +135,10 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val notificationPermissionRequest = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { _ -> }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -147,6 +153,14 @@ class MainActivity : ComponentActivity() {
                 Manifest.permission.ACCESS_FINE_LOCATION,
                 Manifest.permission.ACCESS_COARSE_LOCATION
             ))
+        }
+
+        // Request notification permission for Android 13+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+                notificationPermissionRequest.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
         }
 
         setContent {
@@ -374,14 +388,29 @@ fun BusTimesScreen(locationMode: LocationMode?) {
                                     armedBusKey = armedBusKey,
                                     onTimeBoxClick = { key, currentSeconds ->
                                         if (armedBusKey == key) {
+                                            // Disarm - stop service
                                             armedBusKey = null
                                             lastAlarmThreshold = Int.MAX_VALUE
                                             stopAlarmSound()
+                                            BusAlarmService.stopAlarm()
+                                            context.stopService(Intent(context, BusAlarmService::class.java))
                                         } else {
+                                            // Arm - start service
                                             armedBusKey = key
-                                            // Set initial threshold to current level so it won't alarm immediately
                                             lastAlarmThreshold = (currentSeconds / ALARM_INTERVAL_SECONDS) * ALARM_INTERVAL_SECONDS + ALARM_INTERVAL_SECONDS
                                             stopAlarmSound()
+
+                                            val parts = key.split("-")
+                                            val direction = parts[0]
+                                            val index = parts.getOrNull(1)?.toIntOrNull() ?: 0
+
+                                            val serviceIntent = Intent(context, BusAlarmService::class.java).apply {
+                                                putExtra(BusAlarmService.EXTRA_STOP, stopParam)
+                                                putExtra(BusAlarmService.EXTRA_DIRECTION, direction)
+                                                putExtra(BusAlarmService.EXTRA_INDEX, index)
+                                                putExtra(BusAlarmService.EXTRA_INITIAL_SECONDS, currentSeconds)
+                                            }
+                                            context.startForegroundService(serviceIntent)
                                         }
                                     }
                                 )
@@ -397,14 +426,29 @@ fun BusTimesScreen(locationMode: LocationMode?) {
                                     armedBusKey = armedBusKey,
                                     onTimeBoxClick = { key, currentSeconds ->
                                         if (armedBusKey == key) {
+                                            // Disarm - stop service
                                             armedBusKey = null
                                             lastAlarmThreshold = Int.MAX_VALUE
                                             stopAlarmSound()
+                                            BusAlarmService.stopAlarm()
+                                            context.stopService(Intent(context, BusAlarmService::class.java))
                                         } else {
+                                            // Arm - start service
                                             armedBusKey = key
-                                            // Set initial threshold to current level so it won't alarm immediately
                                             lastAlarmThreshold = (currentSeconds / ALARM_INTERVAL_SECONDS) * ALARM_INTERVAL_SECONDS + ALARM_INTERVAL_SECONDS
                                             stopAlarmSound()
+
+                                            val parts = key.split("-")
+                                            val direction = parts[0]
+                                            val index = parts.getOrNull(1)?.toIntOrNull() ?: 0
+
+                                            val serviceIntent = Intent(context, BusAlarmService::class.java).apply {
+                                                putExtra(BusAlarmService.EXTRA_STOP, stopParam)
+                                                putExtra(BusAlarmService.EXTRA_DIRECTION, direction)
+                                                putExtra(BusAlarmService.EXTRA_INDEX, index)
+                                                putExtra(BusAlarmService.EXTRA_INITIAL_SECONDS, currentSeconds)
+                                            }
+                                            context.startForegroundService(serviceIntent)
                                         }
                                     }
                                 )
@@ -420,14 +464,29 @@ fun BusTimesScreen(locationMode: LocationMode?) {
                                     armedBusKey = armedBusKey,
                                     onTimeBoxClick = { key, currentSeconds ->
                                         if (armedBusKey == key) {
+                                            // Disarm - stop service
                                             armedBusKey = null
                                             lastAlarmThreshold = Int.MAX_VALUE
                                             stopAlarmSound()
+                                            BusAlarmService.stopAlarm()
+                                            context.stopService(Intent(context, BusAlarmService::class.java))
                                         } else {
+                                            // Arm - start service
                                             armedBusKey = key
-                                            // Set initial threshold to current level so it won't alarm immediately
                                             lastAlarmThreshold = (currentSeconds / ALARM_INTERVAL_SECONDS) * ALARM_INTERVAL_SECONDS + ALARM_INTERVAL_SECONDS
                                             stopAlarmSound()
+
+                                            val parts = key.split("-")
+                                            val direction = parts[0]
+                                            val index = parts.getOrNull(1)?.toIntOrNull() ?: 0
+
+                                            val serviceIntent = Intent(context, BusAlarmService::class.java).apply {
+                                                putExtra(BusAlarmService.EXTRA_STOP, stopParam)
+                                                putExtra(BusAlarmService.EXTRA_DIRECTION, direction)
+                                                putExtra(BusAlarmService.EXTRA_INDEX, index)
+                                                putExtra(BusAlarmService.EXTRA_INITIAL_SECONDS, currentSeconds)
+                                            }
+                                            context.startForegroundService(serviceIntent)
                                         }
                                     }
                                 )
@@ -443,14 +502,29 @@ fun BusTimesScreen(locationMode: LocationMode?) {
                                     armedBusKey = armedBusKey,
                                     onTimeBoxClick = { key, currentSeconds ->
                                         if (armedBusKey == key) {
+                                            // Disarm - stop service
                                             armedBusKey = null
                                             lastAlarmThreshold = Int.MAX_VALUE
                                             stopAlarmSound()
+                                            BusAlarmService.stopAlarm()
+                                            context.stopService(Intent(context, BusAlarmService::class.java))
                                         } else {
+                                            // Arm - start service
                                             armedBusKey = key
-                                            // Set initial threshold to current level so it won't alarm immediately
                                             lastAlarmThreshold = (currentSeconds / ALARM_INTERVAL_SECONDS) * ALARM_INTERVAL_SECONDS + ALARM_INTERVAL_SECONDS
                                             stopAlarmSound()
+
+                                            val parts = key.split("-")
+                                            val direction = parts[0]
+                                            val index = parts.getOrNull(1)?.toIntOrNull() ?: 0
+
+                                            val serviceIntent = Intent(context, BusAlarmService::class.java).apply {
+                                                putExtra(BusAlarmService.EXTRA_STOP, stopParam)
+                                                putExtra(BusAlarmService.EXTRA_DIRECTION, direction)
+                                                putExtra(BusAlarmService.EXTRA_INDEX, index)
+                                                putExtra(BusAlarmService.EXTRA_INITIAL_SECONDS, currentSeconds)
+                                            }
+                                            context.startForegroundService(serviceIntent)
                                         }
                                     }
                                 )
