@@ -1,8 +1,10 @@
 package com.example.tersetransporttimes
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Location
+import android.media.RingtoneManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -16,6 +18,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
@@ -87,6 +90,17 @@ fun determineLocationMode(lat: Double, lon: Double): LocationMode {
     }
 }
 
+fun playAlarmSound(context: Context) {
+    try {
+        val alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+        val ringtone = RingtoneManager.getRingtone(context, alarmUri)
+        ringtone?.play()
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+}
+
 class MainActivity : ComponentActivity() {
     private var locationMode by mutableStateOf<LocationMode?>(null)
 
@@ -155,11 +169,13 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun BusTimesScreen(locationMode: LocationMode?) {
+    val context = LocalContext.current
     var busData by remember { mutableStateOf<BusData?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var countdown by remember { mutableIntStateOf(30) }
     var lastFetchTime by remember { mutableStateOf(0L) }
+    var refreshTrigger by remember { mutableIntStateOf(0) }
 
     // Determine which stop to fetch based on location
     val stopParam = when (locationMode) {
@@ -176,13 +192,32 @@ fun BusTimesScreen(locationMode: LocationMode?) {
                 val timeSinceLastFetch = now - lastFetchTime
                 if (lastFetchTime > 0 && timeSinceLastFetch > 30_000) {
                     // Data is stale, trigger refresh
-                    countdown = 0
+                    refreshTrigger++
                 }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    // Handle refresh trigger from lifecycle
+    LaunchedEffect(refreshTrigger) {
+        if (refreshTrigger > 0) {
+            isLoading = true
+            error = null
+            try {
+                delay(500) // Rate limit protection
+                busData = fetchBusTimes(stopParam)
+                lastFetchTime = System.currentTimeMillis()
+                playAlarmSound(context) // Test alarm on refresh
+                isLoading = false
+            } catch (e: Exception) {
+                error = e.message
+                isLoading = false
+            }
+            countdown = 30
         }
     }
 
@@ -199,6 +234,7 @@ fun BusTimesScreen(locationMode: LocationMode?) {
                 delay(500) // Rate limit protection
                 busData = fetchBusTimes(stopParam)
                 lastFetchTime = System.currentTimeMillis()
+                playAlarmSound(context) // Test alarm on refresh
                 isLoading = false
             } catch (e: Exception) {
                 error = e.message
@@ -216,6 +252,7 @@ fun BusTimesScreen(locationMode: LocationMode?) {
             delay(500) // Rate limit protection
             busData = fetchBusTimes(stopParam)
             lastFetchTime = System.currentTimeMillis()
+            playAlarmSound(context) // Test alarm on refresh
             isLoading = false
         } catch (e: Exception) {
             error = e.message
