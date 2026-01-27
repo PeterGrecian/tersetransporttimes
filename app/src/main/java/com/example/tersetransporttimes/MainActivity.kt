@@ -307,7 +307,6 @@ fun BusTimesScreen(locationMode: LocationMode?) {
             val data = fetchBusTimes(stopParam)
             busData = data
             lastFetchTime = System.currentTimeMillis()
-            playAlarmSound(context) // Test alarm on refresh
             checkAlarm(data)
             isLoading = false
         } catch (e: Exception) {
@@ -373,14 +372,15 @@ fun BusTimesScreen(locationMode: LocationMode?) {
                                     destination = data.inboundDest ?: "Kingston",
                                     direction = "inbound",
                                     armedBusKey = armedBusKey,
-                                    onTimeBoxClick = { key ->
+                                    onTimeBoxClick = { key, currentSeconds ->
                                         if (armedBusKey == key) {
                                             armedBusKey = null
                                             lastAlarmThreshold = Int.MAX_VALUE
                                             stopAlarmSound()
                                         } else {
                                             armedBusKey = key
-                                            lastAlarmThreshold = Int.MAX_VALUE
+                                            // Set initial threshold to current level so it won't alarm immediately
+                                            lastAlarmThreshold = (currentSeconds / ALARM_INTERVAL_SECONDS) * ALARM_INTERVAL_SECONDS + ALARM_INTERVAL_SECONDS
                                             stopAlarmSound()
                                         }
                                     }
@@ -395,14 +395,15 @@ fun BusTimesScreen(locationMode: LocationMode?) {
                                     destination = data.outboundDest ?: "Hook",
                                     direction = "outbound",
                                     armedBusKey = armedBusKey,
-                                    onTimeBoxClick = { key ->
+                                    onTimeBoxClick = { key, currentSeconds ->
                                         if (armedBusKey == key) {
                                             armedBusKey = null
                                             lastAlarmThreshold = Int.MAX_VALUE
                                             stopAlarmSound()
                                         } else {
                                             armedBusKey = key
-                                            lastAlarmThreshold = Int.MAX_VALUE
+                                            // Set initial threshold to current level so it won't alarm immediately
+                                            lastAlarmThreshold = (currentSeconds / ALARM_INTERVAL_SECONDS) * ALARM_INTERVAL_SECONDS + ALARM_INTERVAL_SECONDS
                                             stopAlarmSound()
                                         }
                                     }
@@ -417,14 +418,15 @@ fun BusTimesScreen(locationMode: LocationMode?) {
                                     destination = data.inboundDest ?: "Kingston",
                                     direction = "inbound",
                                     armedBusKey = armedBusKey,
-                                    onTimeBoxClick = { key ->
+                                    onTimeBoxClick = { key, currentSeconds ->
                                         if (armedBusKey == key) {
                                             armedBusKey = null
                                             lastAlarmThreshold = Int.MAX_VALUE
                                             stopAlarmSound()
                                         } else {
                                             armedBusKey = key
-                                            lastAlarmThreshold = Int.MAX_VALUE
+                                            // Set initial threshold to current level so it won't alarm immediately
+                                            lastAlarmThreshold = (currentSeconds / ALARM_INTERVAL_SECONDS) * ALARM_INTERVAL_SECONDS + ALARM_INTERVAL_SECONDS
                                             stopAlarmSound()
                                         }
                                     }
@@ -439,14 +441,15 @@ fun BusTimesScreen(locationMode: LocationMode?) {
                                     destination = data.outboundDest ?: "Hook",
                                     direction = "outbound",
                                     armedBusKey = armedBusKey,
-                                    onTimeBoxClick = { key ->
+                                    onTimeBoxClick = { key, currentSeconds ->
                                         if (armedBusKey == key) {
                                             armedBusKey = null
                                             lastAlarmThreshold = Int.MAX_VALUE
                                             stopAlarmSound()
                                         } else {
                                             armedBusKey = key
-                                            lastAlarmThreshold = Int.MAX_VALUE
+                                            // Set initial threshold to current level so it won't alarm immediately
+                                            lastAlarmThreshold = (currentSeconds / ALARM_INTERVAL_SECONDS) * ALARM_INTERVAL_SECONDS + ALARM_INTERVAL_SECONDS
                                             stopAlarmSound()
                                         }
                                     }
@@ -466,7 +469,7 @@ fun DirectionSection(
     destination: String,
     direction: String,
     armedBusKey: String?,
-    onTimeBoxClick: (String) -> Unit
+    onTimeBoxClick: (String, Int) -> Unit
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Row(
@@ -482,7 +485,7 @@ fun DirectionSection(
                         displayText = secondsToQuarterMinutes(secs),
                         isNext = index == 0,
                         isArmed = armedBusKey == key,
-                        onClick = { onTimeBoxClick(key) }
+                        onClick = { onTimeBoxClick(key, secs) }
                     )
                     if (index < seconds.size - 1) {
                         Spacer(modifier = Modifier.width(16.dp))
