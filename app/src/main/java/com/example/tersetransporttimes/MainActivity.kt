@@ -12,6 +12,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -34,13 +37,26 @@ import org.json.JSONObject
 // Parklands bus stop location
 const val PARKLANDS_LAT = 51.39436
 const val PARKLANDS_LON = -0.29321
-const val HOME_RADIUS_METERS = 200f
+const val HOME_RADIUS_METERS = 400f
+
+// Surbiton Station location
+const val SURBITON_LAT = 51.39374
+const val SURBITON_LON = -0.30411
+const val SURBITON_RADIUS_METERS = 400f
+
+// Location mode determines which stop and directions to show
+enum class LocationMode {
+    NEAR_HOME,      // Near Parklands - show only inbound (to Kingston)
+    NEAR_SURBITON,  // Near Surbiton Station - show only outbound (to Hook)
+    ELSEWHERE       // Elsewhere - show both directions from Parklands
+}
 
 data class BusData(
-    val inboundSeconds: List<Int>,
-    val outboundSeconds: List<Int>,
-    val inboundDest: String,
-    val outboundDest: String
+    val stopName: String,
+    val inboundSeconds: List<Int>?,
+    val outboundSeconds: List<Int>?,
+    val inboundDest: String?,
+    val outboundDest: String?
 )
 
 fun secondsToQuarterMinutes(seconds: Int): String {
@@ -54,14 +70,25 @@ fun secondsToQuarterMinutes(seconds: Int): String {
     }
 }
 
-fun distanceToHome(lat: Double, lon: Double): Float {
+fun distanceTo(lat: Double, lon: Double, targetLat: Double, targetLon: Double): Float {
     val results = FloatArray(1)
-    Location.distanceBetween(lat, lon, PARKLANDS_LAT, PARKLANDS_LON, results)
+    Location.distanceBetween(lat, lon, targetLat, targetLon, results)
     return results[0]
 }
 
+fun determineLocationMode(lat: Double, lon: Double): LocationMode {
+    val distanceToHome = distanceTo(lat, lon, PARKLANDS_LAT, PARKLANDS_LON)
+    val distanceToSurbiton = distanceTo(lat, lon, SURBITON_LAT, SURBITON_LON)
+
+    return when {
+        distanceToHome <= HOME_RADIUS_METERS -> LocationMode.NEAR_HOME
+        distanceToSurbiton <= SURBITON_RADIUS_METERS -> LocationMode.NEAR_SURBITON
+        else -> LocationMode.ELSEWHERE
+    }
+}
+
 class MainActivity : ComponentActivity() {
-    private var isNearHome by mutableStateOf<Boolean?>(null)
+    private var locationMode by mutableStateOf<LocationMode?>(null)
 
     private val locationPermissionRequest = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -72,8 +99,8 @@ class MainActivity : ComponentActivity() {
                 checkLocation()
             }
             else -> {
-                // Permission denied - show both directions
-                isNearHome = false
+                // Permission denied - show both directions from Parklands
+                locationMode = LocationMode.ELSEWHERE
             }
         }
     }
@@ -95,7 +122,7 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            BusTimesScreen(isNearHome)
+            BusTimesScreen(locationMode)
         }
     }
 
@@ -104,7 +131,7 @@ class MainActivity : ComponentActivity() {
             != PackageManager.PERMISSION_GRANTED &&
             ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)
             != PackageManager.PERMISSION_GRANTED) {
-            isNearHome = false
+            locationMode = LocationMode.ELSEWHERE
             return
         }
 
@@ -116,26 +143,51 @@ class MainActivity : ComponentActivity() {
             cancellationToken.token
         ).addOnSuccessListener { location ->
             if (location != null) {
-                val distance = distanceToHome(location.latitude, location.longitude)
-                isNearHome = distance <= HOME_RADIUS_METERS
+                locationMode = determineLocationMode(location.latitude, location.longitude)
             } else {
-                isNearHome = false
+                locationMode = LocationMode.ELSEWHERE
             }
         }.addOnFailureListener {
-            isNearHome = false
+            locationMode = LocationMode.ELSEWHERE
         }
     }
 }
 
 @Composable
-fun BusTimesScreen(isNearHome: Boolean?) {
+fun BusTimesScreen(locationMode: LocationMode?) {
     var busData by remember { mutableStateOf<BusData?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var countdown by remember { mutableIntStateOf(30) }
+    var lastFetchTime by remember { mutableStateOf(0L) }
+
+    // Determine which stop to fetch based on location
+    val stopParam = when (locationMode) {
+        LocationMode.NEAR_SURBITON -> "surbiton"
+        else -> "parklands"
+    }
+
+    // Lifecycle observer to refresh when app resumes
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                val now = System.currentTimeMillis()
+                val timeSinceLastFetch = now - lastFetchTime
+                if (lastFetchTime > 0 && timeSinceLastFetch > 30_000) {
+                    // Data is stale, trigger refresh
+                    countdown = 0
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     // Auto-refresh countdown
-    LaunchedEffect(countdown) {
+    LaunchedEffect(countdown, stopParam) {
         if (countdown > 0) {
             delay(1000)
             countdown--
@@ -144,7 +196,9 @@ fun BusTimesScreen(isNearHome: Boolean?) {
             isLoading = true
             error = null
             try {
-                busData = fetchBusTimes()
+                delay(500) // Rate limit protection
+                busData = fetchBusTimes(stopParam)
+                lastFetchTime = System.currentTimeMillis()
                 isLoading = false
             } catch (e: Exception) {
                 error = e.message
@@ -154,15 +208,25 @@ fun BusTimesScreen(isNearHome: Boolean?) {
         }
     }
 
-    // Initial load
-    LaunchedEffect(Unit) {
+    // Initial load and reload when location mode changes
+    LaunchedEffect(stopParam) {
+        isLoading = true
+        error = null
         try {
-            busData = fetchBusTimes()
+            delay(500) // Rate limit protection
+            busData = fetchBusTimes(stopParam)
+            lastFetchTime = System.currentTimeMillis()
             isLoading = false
         } catch (e: Exception) {
             error = e.message
             isLoading = false
         }
+    }
+
+    // Determine header based on location
+    val headerText = when (locationMode) {
+        LocationMode.NEAR_SURBITON -> "K2 @ Surbiton Station"
+        else -> "K2 @ Parklands"
     }
 
     Surface(
@@ -177,7 +241,7 @@ fun BusTimesScreen(isNearHome: Boolean?) {
         ) {
             // Header
             Text(
-                text = "K2 @ Parklands",
+                text = headerText,
                 color = Color.White,
                 fontSize = 20.sp,
                 fontFamily = FontFamily.SansSerif,
@@ -207,26 +271,43 @@ fun BusTimesScreen(isNearHome: Boolean?) {
                 }
             } else {
                 busData?.let { data ->
-                    // If near home, only show inbound (to Kingston)
-                    if (isNearHome == true) {
-                        // Only inbound
-                        DirectionSection(
-                            seconds = data.inboundSeconds,
-                            destination = data.inboundDest
-                        )
-                    } else {
-                        // Show both directions
-                        DirectionSection(
-                            seconds = data.inboundSeconds,
-                            destination = data.inboundDest
-                        )
+                    when (locationMode) {
+                        LocationMode.NEAR_HOME -> {
+                            // Near Parklands - only show inbound (to Kingston)
+                            data.inboundSeconds?.let { seconds ->
+                                DirectionSection(
+                                    seconds = seconds,
+                                    destination = data.inboundDest ?: "Kingston"
+                                )
+                            }
+                        }
+                        LocationMode.NEAR_SURBITON -> {
+                            // Near Surbiton - only show outbound (to Hook)
+                            data.outboundSeconds?.let { seconds ->
+                                DirectionSection(
+                                    seconds = seconds,
+                                    destination = data.outboundDest ?: "Hook"
+                                )
+                            }
+                        }
+                        else -> {
+                            // Elsewhere - show both directions from Parklands
+                            data.inboundSeconds?.let { seconds ->
+                                DirectionSection(
+                                    seconds = seconds,
+                                    destination = data.inboundDest ?: "Kingston"
+                                )
+                            }
 
-                        Spacer(modifier = Modifier.height(48.dp))
+                            Spacer(modifier = Modifier.height(48.dp))
 
-                        DirectionSection(
-                            seconds = data.outboundSeconds,
-                            destination = data.outboundDest
-                        )
+                            data.outboundSeconds?.let { seconds ->
+                                DirectionSection(
+                                    seconds = seconds,
+                                    destination = data.outboundDest ?: "Hook"
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -284,10 +365,10 @@ fun TimeBox(displayText: String?, isNext: Boolean) {
     }
 }
 
-private suspend fun fetchBusTimes(): BusData = withContext(Dispatchers.IO) {
+private suspend fun fetchBusTimes(stop: String = "parklands"): BusData = withContext(Dispatchers.IO) {
     val client = OkHttpClient()
     val request = Request.Builder()
-        .url("https://w3.petergrecian.co.uk/t3")
+        .url("https://w3.petergrecian.co.uk/t3?stop=$stop")
         .header("Accept", "application/json")
         .build()
 
@@ -295,26 +376,42 @@ private suspend fun fetchBusTimes(): BusData = withContext(Dispatchers.IO) {
         if (!response.isSuccessful) throw Exception("Unexpected code $response")
         val json = JSONObject(response.body?.string() ?: "{}")
 
-        val inbound = json.getJSONObject("inbound")
-        val outbound = json.getJSONObject("outbound")
+        val stopName = json.optString("stop", "Parklands")
 
-        val inboundSeconds = mutableListOf<Int>()
-        val inboundArr = inbound.getJSONArray("seconds")
-        for (i in 0 until inboundArr.length()) {
-            inboundSeconds.add(inboundArr.getInt(i))
+        // Parse inbound if present
+        var inboundSeconds: List<Int>? = null
+        var inboundDest: String? = null
+        if (json.has("inbound")) {
+            val inbound = json.getJSONObject("inbound")
+            val inboundList = mutableListOf<Int>()
+            val inboundArr = inbound.getJSONArray("seconds")
+            for (i in 0 until inboundArr.length()) {
+                inboundList.add(inboundArr.getInt(i))
+            }
+            inboundSeconds = inboundList
+            inboundDest = inbound.getString("destination")
         }
 
-        val outboundSeconds = mutableListOf<Int>()
-        val outboundArr = outbound.getJSONArray("seconds")
-        for (i in 0 until outboundArr.length()) {
-            outboundSeconds.add(outboundArr.getInt(i))
+        // Parse outbound if present
+        var outboundSeconds: List<Int>? = null
+        var outboundDest: String? = null
+        if (json.has("outbound")) {
+            val outbound = json.getJSONObject("outbound")
+            val outboundList = mutableListOf<Int>()
+            val outboundArr = outbound.getJSONArray("seconds")
+            for (i in 0 until outboundArr.length()) {
+                outboundList.add(outboundArr.getInt(i))
+            }
+            outboundSeconds = outboundList
+            outboundDest = outbound.getString("destination")
         }
 
         BusData(
+            stopName = stopName,
             inboundSeconds = inboundSeconds,
             outboundSeconds = outboundSeconds,
-            inboundDest = inbound.getString("destination"),
-            outboundDest = outbound.getString("destination")
+            inboundDest = inboundDest,
+            outboundDest = outboundDest
         )
     }
 }
