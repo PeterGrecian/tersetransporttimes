@@ -181,8 +181,8 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// Alarm threshold - sound alarm when bus is this many seconds away
-const val ALARM_THRESHOLD_SECONDS = 180 // 3 minutes
+// Alarm interval - sound alarm every 3 minutes before arrival
+const val ALARM_INTERVAL_SECONDS = 180 // 3 minutes
 
 @Composable
 fun BusTimesScreen(locationMode: LocationMode?) {
@@ -196,7 +196,8 @@ fun BusTimesScreen(locationMode: LocationMode?) {
 
     // Armed alarm state: "inbound-0", "inbound-1", "outbound-0", "outbound-1", or null
     var armedBusKey by remember { mutableStateOf<String?>(null) }
-    var alarmTriggered by remember { mutableStateOf(false) }
+    // Track the last 3-minute threshold that triggered an alarm (e.g., 540, 360, 180, 0)
+    var lastAlarmThreshold by remember { mutableIntStateOf(Int.MAX_VALUE) }
 
     // Determine which stop to fetch based on location
     val stopParam = when (locationMode) {
@@ -223,9 +224,9 @@ fun BusTimesScreen(locationMode: LocationMode?) {
         }
     }
 
-    // Check if armed bus has reached alarm threshold
+    // Check if armed bus has crossed a 3-minute threshold
     fun checkAlarm(data: BusData?) {
-        if (armedBusKey == null || data == null || alarmTriggered) return
+        if (armedBusKey == null || data == null) return
 
         val seconds = when {
             armedBusKey!!.startsWith("inbound-") -> {
@@ -239,9 +240,17 @@ fun BusTimesScreen(locationMode: LocationMode?) {
             else -> null
         }
 
-        if (seconds != null && seconds <= ALARM_THRESHOLD_SECONDS) {
-            playAlarmSound(context)
-            alarmTriggered = true
+        if (seconds != null) {
+            // Calculate the next 3-minute threshold below current time
+            // e.g., 500 seconds -> threshold is 360 (6 min)
+            // e.g., 200 seconds -> threshold is 180 (3 min)
+            val currentThreshold = (seconds / ALARM_INTERVAL_SECONDS) * ALARM_INTERVAL_SECONDS
+
+            // If we've crossed below a new threshold, sound alarm
+            if (currentThreshold < lastAlarmThreshold) {
+                playAlarmSound(context)
+                lastAlarmThreshold = currentThreshold
+            }
         }
     }
 
@@ -367,11 +376,11 @@ fun BusTimesScreen(locationMode: LocationMode?) {
                                     onTimeBoxClick = { key ->
                                         if (armedBusKey == key) {
                                             armedBusKey = null
-                                            alarmTriggered = false
+                                            lastAlarmThreshold = Int.MAX_VALUE
                                             stopAlarmSound()
                                         } else {
                                             armedBusKey = key
-                                            alarmTriggered = false
+                                            lastAlarmThreshold = Int.MAX_VALUE
                                             stopAlarmSound()
                                         }
                                     }
@@ -389,11 +398,11 @@ fun BusTimesScreen(locationMode: LocationMode?) {
                                     onTimeBoxClick = { key ->
                                         if (armedBusKey == key) {
                                             armedBusKey = null
-                                            alarmTriggered = false
+                                            lastAlarmThreshold = Int.MAX_VALUE
                                             stopAlarmSound()
                                         } else {
                                             armedBusKey = key
-                                            alarmTriggered = false
+                                            lastAlarmThreshold = Int.MAX_VALUE
                                             stopAlarmSound()
                                         }
                                     }
@@ -411,11 +420,11 @@ fun BusTimesScreen(locationMode: LocationMode?) {
                                     onTimeBoxClick = { key ->
                                         if (armedBusKey == key) {
                                             armedBusKey = null
-                                            alarmTriggered = false
+                                            lastAlarmThreshold = Int.MAX_VALUE
                                             stopAlarmSound()
                                         } else {
                                             armedBusKey = key
-                                            alarmTriggered = false
+                                            lastAlarmThreshold = Int.MAX_VALUE
                                             stopAlarmSound()
                                         }
                                     }
@@ -433,11 +442,11 @@ fun BusTimesScreen(locationMode: LocationMode?) {
                                     onTimeBoxClick = { key ->
                                         if (armedBusKey == key) {
                                             armedBusKey = null
-                                            alarmTriggered = false
+                                            lastAlarmThreshold = Int.MAX_VALUE
                                             stopAlarmSound()
                                         } else {
                                             armedBusKey = key
-                                            alarmTriggered = false
+                                            lastAlarmThreshold = Int.MAX_VALUE
                                             stopAlarmSound()
                                         }
                                     }
