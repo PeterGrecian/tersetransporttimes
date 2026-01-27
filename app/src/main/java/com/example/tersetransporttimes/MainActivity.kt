@@ -10,6 +10,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -167,6 +168,9 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+// Alarm threshold - sound alarm when bus is this many seconds away
+const val ALARM_THRESHOLD_SECONDS = 180 // 3 minutes
+
 @Composable
 fun BusTimesScreen(locationMode: LocationMode?) {
     val context = LocalContext.current
@@ -176,6 +180,10 @@ fun BusTimesScreen(locationMode: LocationMode?) {
     var countdown by remember { mutableIntStateOf(30) }
     var lastFetchTime by remember { mutableStateOf(0L) }
     var refreshTrigger by remember { mutableIntStateOf(0) }
+
+    // Armed alarm state: "inbound-0", "inbound-1", "outbound-0", "outbound-1", or null
+    var armedBusKey by remember { mutableStateOf<String?>(null) }
+    var alarmTriggered by remember { mutableStateOf(false) }
 
     // Determine which stop to fetch based on location
     val stopParam = when (locationMode) {
@@ -202,6 +210,28 @@ fun BusTimesScreen(locationMode: LocationMode?) {
         }
     }
 
+    // Check if armed bus has reached alarm threshold
+    fun checkAlarm(data: BusData?) {
+        if (armedBusKey == null || data == null || alarmTriggered) return
+
+        val seconds = when {
+            armedBusKey!!.startsWith("inbound-") -> {
+                val index = armedBusKey!!.removePrefix("inbound-").toIntOrNull() ?: return
+                data.inboundSeconds?.getOrNull(index)
+            }
+            armedBusKey!!.startsWith("outbound-") -> {
+                val index = armedBusKey!!.removePrefix("outbound-").toIntOrNull() ?: return
+                data.outboundSeconds?.getOrNull(index)
+            }
+            else -> null
+        }
+
+        if (seconds != null && seconds <= ALARM_THRESHOLD_SECONDS) {
+            playAlarmSound(context)
+            alarmTriggered = true
+        }
+    }
+
     // Handle refresh trigger from lifecycle
     LaunchedEffect(refreshTrigger) {
         if (refreshTrigger > 0) {
@@ -209,9 +239,10 @@ fun BusTimesScreen(locationMode: LocationMode?) {
             error = null
             try {
                 delay(500) // Rate limit protection
-                busData = fetchBusTimes(stopParam)
+                val data = fetchBusTimes(stopParam)
+                busData = data
                 lastFetchTime = System.currentTimeMillis()
-                playAlarmSound(context) // Test alarm on refresh
+                checkAlarm(data)
                 isLoading = false
             } catch (e: Exception) {
                 error = e.message
@@ -232,9 +263,10 @@ fun BusTimesScreen(locationMode: LocationMode?) {
             error = null
             try {
                 delay(500) // Rate limit protection
-                busData = fetchBusTimes(stopParam)
+                val data = fetchBusTimes(stopParam)
+                busData = data
                 lastFetchTime = System.currentTimeMillis()
-                playAlarmSound(context) // Test alarm on refresh
+                checkAlarm(data)
                 isLoading = false
             } catch (e: Exception) {
                 error = e.message
@@ -250,9 +282,10 @@ fun BusTimesScreen(locationMode: LocationMode?) {
         error = null
         try {
             delay(500) // Rate limit protection
-            busData = fetchBusTimes(stopParam)
+            val data = fetchBusTimes(stopParam)
+            busData = data
             lastFetchTime = System.currentTimeMillis()
-            playAlarmSound(context) // Test alarm on refresh
+            checkAlarm(data)
             isLoading = false
         } catch (e: Exception) {
             error = e.message
@@ -314,7 +347,18 @@ fun BusTimesScreen(locationMode: LocationMode?) {
                             data.inboundSeconds?.let { seconds ->
                                 DirectionSection(
                                     seconds = seconds,
-                                    destination = data.inboundDest ?: "Kingston"
+                                    destination = data.inboundDest ?: "Kingston",
+                                    direction = "inbound",
+                                    armedBusKey = armedBusKey,
+                                    onTimeBoxClick = { key ->
+                                        if (armedBusKey == key) {
+                                            armedBusKey = null
+                                            alarmTriggered = false
+                                        } else {
+                                            armedBusKey = key
+                                            alarmTriggered = false
+                                        }
+                                    }
                                 )
                             }
                         }
@@ -323,7 +367,18 @@ fun BusTimesScreen(locationMode: LocationMode?) {
                             data.outboundSeconds?.let { seconds ->
                                 DirectionSection(
                                     seconds = seconds,
-                                    destination = data.outboundDest ?: "Hook"
+                                    destination = data.outboundDest ?: "Hook",
+                                    direction = "outbound",
+                                    armedBusKey = armedBusKey,
+                                    onTimeBoxClick = { key ->
+                                        if (armedBusKey == key) {
+                                            armedBusKey = null
+                                            alarmTriggered = false
+                                        } else {
+                                            armedBusKey = key
+                                            alarmTriggered = false
+                                        }
+                                    }
                                 )
                             }
                         }
@@ -332,7 +387,18 @@ fun BusTimesScreen(locationMode: LocationMode?) {
                             data.inboundSeconds?.let { seconds ->
                                 DirectionSection(
                                     seconds = seconds,
-                                    destination = data.inboundDest ?: "Kingston"
+                                    destination = data.inboundDest ?: "Kingston",
+                                    direction = "inbound",
+                                    armedBusKey = armedBusKey,
+                                    onTimeBoxClick = { key ->
+                                        if (armedBusKey == key) {
+                                            armedBusKey = null
+                                            alarmTriggered = false
+                                        } else {
+                                            armedBusKey = key
+                                            alarmTriggered = false
+                                        }
+                                    }
                                 )
                             }
 
@@ -341,7 +407,18 @@ fun BusTimesScreen(locationMode: LocationMode?) {
                             data.outboundSeconds?.let { seconds ->
                                 DirectionSection(
                                     seconds = seconds,
-                                    destination = data.outboundDest ?: "Hook"
+                                    destination = data.outboundDest ?: "Hook",
+                                    direction = "outbound",
+                                    armedBusKey = armedBusKey,
+                                    onTimeBoxClick = { key ->
+                                        if (armedBusKey == key) {
+                                            armedBusKey = null
+                                            alarmTriggered = false
+                                        } else {
+                                            armedBusKey = key
+                                            alarmTriggered = false
+                                        }
+                                    }
                                 )
                             }
                         }
@@ -353,17 +430,29 @@ fun BusTimesScreen(locationMode: LocationMode?) {
 }
 
 @Composable
-fun DirectionSection(seconds: List<Int>, destination: String) {
+fun DirectionSection(
+    seconds: List<Int>,
+    destination: String,
+    direction: String,
+    armedBusKey: String?,
+    onTimeBoxClick: (String) -> Unit
+) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Row(
             horizontalArrangement = Arrangement.Center,
             modifier = Modifier.fillMaxWidth()
         ) {
             if (seconds.isEmpty()) {
-                TimeBox(displayText = null, isNext = false)
+                TimeBox(displayText = null, isNext = false, isArmed = false, onClick = {})
             } else {
                 seconds.forEachIndexed { index, secs ->
-                    TimeBox(displayText = secondsToQuarterMinutes(secs), isNext = index == 0)
+                    val key = "$direction-$index"
+                    TimeBox(
+                        displayText = secondsToQuarterMinutes(secs),
+                        isNext = index == 0,
+                        isArmed = armedBusKey == key,
+                        onClick = { onTimeBoxClick(key) }
+                    )
                     if (index < seconds.size - 1) {
                         Spacer(modifier = Modifier.width(16.dp))
                     }
@@ -380,14 +469,23 @@ fun DirectionSection(seconds: List<Int>, destination: String) {
 }
 
 @Composable
-fun TimeBox(displayText: String?, isNext: Boolean) {
-    val borderColor = if (isNext) Color.White else Color(0xFF4A9EFF)
-    val textColor = if (isNext) Color.White else Color(0xFF4A9EFF)
-    val fontWeight = if (isNext) FontWeight.Bold else FontWeight.Normal
+fun TimeBox(displayText: String?, isNext: Boolean, isArmed: Boolean, onClick: () -> Unit) {
+    val borderColor = when {
+        isArmed -> Color(0xFFFF6B00) // Orange when armed
+        isNext -> Color.White
+        else -> Color(0xFF4A9EFF)
+    }
+    val textColor = when {
+        isArmed -> Color(0xFFFF6B00) // Orange when armed
+        isNext -> Color.White
+        else -> Color(0xFF4A9EFF)
+    }
+    val fontWeight = if (isNext || isArmed) FontWeight.Bold else FontWeight.Normal
 
     Box(
         modifier = Modifier
             .border(2.dp, borderColor, RoundedCornerShape(12.dp))
+            .clickable { onClick() }
             .padding(horizontal = 24.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center
     ) {
