@@ -242,6 +242,7 @@ fun BusTimesScreen(locationMode: LocationMode?) {
                 val data = fetchBusTimes(stopParam)
                 busData = data
                 lastFetchTime = System.currentTimeMillis()
+                playAlarmSound(context) // Test alarm on refresh
                 checkAlarm(data)
                 isLoading = false
             } catch (e: Exception) {
@@ -266,6 +267,7 @@ fun BusTimesScreen(locationMode: LocationMode?) {
                 val data = fetchBusTimes(stopParam)
                 busData = data
                 lastFetchTime = System.currentTimeMillis()
+                playAlarmSound(context) // Test alarm on refresh
                 checkAlarm(data)
                 isLoading = false
             } catch (e: Exception) {
@@ -285,6 +287,7 @@ fun BusTimesScreen(locationMode: LocationMode?) {
             val data = fetchBusTimes(stopParam)
             busData = data
             lastFetchTime = System.currentTimeMillis()
+            playAlarmSound(context) // Test alarm on refresh
             checkAlarm(data)
             isLoading = false
         } catch (e: Exception) {
