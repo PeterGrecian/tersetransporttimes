@@ -14,3 +14,17 @@ variable "tfl_api_key" {
   default     = ""
   sensitive   = true
 }
+
+variable "rtt_username" {
+  type        = string
+  description = "RTT API username"
+  default     = ""
+  sensitive   = true
+}
+
+variable "rtt_password" {
+  type        = string
+  description = "RTT API password"
+  default     = ""
+  sensitive   = true
+}

@@ -41,6 +41,27 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 
+// Navigation screens
+sealed class Screen(val route: String, val title: String) {
+    object Buses : Screen("buses", "Buses")
+    object Trains : Screen("trains", "Trains")
+}
+
+// Train data models
+data class TrainDeparture(
+    val scheduledDeparture: String,
+    val expectedDeparture: String,
+    val platform: String,
+    val delayMinutes: Int,
+    val cancelled: Boolean
+)
+
+data class TrainData(
+    val originName: String,
+    val destinationName: String,
+    val departures: List<TrainDeparture>
+)
+
 // Parklands bus stop location
 const val PARKLANDS_LAT = 51.39436
 const val PARKLANDS_LON = -0.29321
@@ -164,7 +185,7 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            BusTimesScreen(locationMode)
+            MainScreen(locationMode)
         }
     }
 
@@ -197,6 +218,55 @@ class MainActivity : ComponentActivity() {
 
 // Alarm interval - sound alarm every 3 minutes before arrival
 const val ALARM_INTERVAL_SECONDS = 180 // 3 minutes
+
+@Composable
+fun MainScreen(locationMode: LocationMode?) {
+    var selectedScreen by remember { mutableStateOf<Screen>(Screen.Buses) }
+
+    Scaffold(
+        containerColor = Color(0xFF1A1A1A),
+        bottomBar = {
+            NavigationBar(
+                containerColor = Color(0xFF2A2A2A),
+                contentColor = Color.White
+            ) {
+                NavigationBarItem(
+                    icon = { Text("K2", fontSize = 16.sp, fontWeight = FontWeight.Bold) },
+                    label = { Text("Buses") },
+                    selected = selectedScreen == Screen.Buses,
+                    onClick = { selectedScreen = Screen.Buses },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = Color(0xFF4A9EFF),
+                        selectedTextColor = Color(0xFF4A9EFF),
+                        unselectedIconColor = Color(0xFF888888),
+                        unselectedTextColor = Color(0xFF888888),
+                        indicatorColor = Color(0xFF1A1A1A)
+                    )
+                )
+                NavigationBarItem(
+                    icon = { Text("SUR", fontSize = 16.sp, fontWeight = FontWeight.Bold) },
+                    label = { Text("Trains") },
+                    selected = selectedScreen == Screen.Trains,
+                    onClick = { selectedScreen = Screen.Trains },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = Color(0xFF4A9EFF),
+                        selectedTextColor = Color(0xFF4A9EFF),
+                        unselectedIconColor = Color(0xFF888888),
+                        unselectedTextColor = Color(0xFF888888),
+                        indicatorColor = Color(0xFF1A1A1A)
+                    )
+                )
+            }
+        }
+    ) { paddingValues ->
+        Box(modifier = Modifier.padding(paddingValues)) {
+            when (selectedScreen) {
+                is Screen.Buses -> BusTimesScreen(locationMode)
+                is Screen.Trains -> TrainTimesScreen()
+            }
+        }
+    }
+}
 
 @Composable
 fun BusTimesScreen(locationMode: LocationMode?) {
@@ -655,6 +725,189 @@ private suspend fun fetchBusTimes(stop: String = "parklands"): BusData = withCon
             outboundSeconds = outboundSeconds,
             inboundDest = inboundDest,
             outboundDest = outboundDest
+        )
+    }
+}
+
+@Composable
+fun TrainTimesScreen() {
+    var trainData by remember { mutableStateOf<TrainData?>(null) }
+    var isLoading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var countdown by remember { mutableIntStateOf(30) }
+
+    // Auto-refresh countdown
+    LaunchedEffect(countdown) {
+        if (countdown > 0) {
+            delay(1000)
+            countdown--
+        } else {
+            isLoading = true
+            error = null
+            try {
+                delay(500) // Rate limit protection
+                trainData = fetchTrainTimes()
+                isLoading = false
+            } catch (e: Exception) {
+                error = e.message
+                isLoading = false
+            }
+            countdown = 30
+        }
+    }
+
+    // Initial load
+    LaunchedEffect(Unit) {
+        try {
+            delay(500)
+            trainData = fetchTrainTimes()
+            isLoading = false
+        } catch (e: Exception) {
+            error = e.message
+            isLoading = false
+        }
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = Color(0xFF1A1A1A)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "Surbiton \u2192 Waterloo",
+                color = Color.White,
+                fontSize = 20.sp,
+                fontFamily = FontFamily.SansSerif,
+                modifier = Modifier.padding(top = 16.dp)
+            )
+
+            Text(
+                text = "refresh in ${countdown}s",
+                color = Color(0xFF888888),
+                fontSize = 14.sp,
+                modifier = Modifier.padding(top = 8.dp, bottom = 24.dp)
+            )
+
+            if (isLoading && trainData == null) {
+                CircularProgressIndicator(color = Color(0xFF4A9EFF))
+            } else if (error != null && trainData == null) {
+                Text(text = "Error: $error", color = Color.Red)
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(
+                    onClick = { countdown = 0 },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4A9EFF))
+                ) {
+                    Text("Retry")
+                }
+            } else {
+                trainData?.departures?.forEach { departure ->
+                    TrainDepartureRow(departure)
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun TrainDepartureRow(departure: TrainDeparture) {
+    val timeColor = when {
+        departure.cancelled -> Color.Red
+        departure.delayMinutes > 0 -> Color(0xFFFF9500) // Orange for delays
+        else -> Color(0xFF4A9EFF)
+    }
+
+    val displayTime = formatTrainTime(departure.expectedDeparture)
+    val statusText = when {
+        departure.cancelled -> "CANC"
+        departure.delayMinutes > 0 -> "+${departure.delayMinutes}"
+        else -> "On time"
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, Color(0xFF333333), RoundedCornerShape(8.dp))
+            .padding(16.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Time
+        Text(
+            text = displayTime,
+            color = timeColor,
+            fontSize = 32.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold
+        )
+
+        // Platform
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = "Plat",
+                color = Color(0xFF666666),
+                fontSize = 10.sp
+            )
+            Text(
+                text = departure.platform.ifEmpty { "-" },
+                color = Color.White,
+                fontSize = 18.sp
+            )
+        }
+
+        // Status
+        Text(
+            text = statusText,
+            color = timeColor,
+            fontSize = 14.sp
+        )
+    }
+}
+
+fun formatTrainTime(time: String): String {
+    return if (time.length >= 4) {
+        "${time.substring(0, 2)}:${time.substring(2, 4)}"
+    } else {
+        time
+    }
+}
+
+private suspend fun fetchTrainTimes(): TrainData = withContext(Dispatchers.IO) {
+    val client = OkHttpClient()
+    val request = Request.Builder()
+        .url("https://w3.petergrecian.co.uk/trains")
+        .header("Accept", "application/json")
+        .build()
+
+    client.newCall(request).execute().use { response ->
+        if (!response.isSuccessful) throw Exception("Unexpected code $response")
+        val json = JSONObject(response.body?.string() ?: "{}")
+
+        val departures = mutableListOf<TrainDeparture>()
+        val departuresArray = json.optJSONArray("departures")
+
+        if (departuresArray != null) {
+            for (i in 0 until departuresArray.length()) {
+                val dep = departuresArray.getJSONObject(i)
+                departures.add(TrainDeparture(
+                    scheduledDeparture = dep.optString("scheduledDeparture", ""),
+                    expectedDeparture = dep.optString("expectedDeparture", ""),
+                    platform = dep.optString("platform", ""),
+                    delayMinutes = dep.optInt("delayMinutes", 0),
+                    cancelled = dep.optBoolean("cancelled", false)
+                ))
+            }
+        }
+
+        TrainData(
+            originName = json.optString("originName", "Surbiton"),
+            destinationName = json.optString("destinationName", "London Waterloo"),
+            departures = departures
         )
     }
 }

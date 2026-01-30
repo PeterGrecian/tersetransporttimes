@@ -95,6 +95,56 @@ resource "aws_lambda_permission" "api_gw" {
   source_arn    = "${aws_apigatewayv2_api.t3_api.execution_arn}/*/*"
 }
 
+# Zip the trains Lambda code
+data "archive_file" "trains_lambda_zip" {
+  type        = "zip"
+  source_file = "${path.module}/../trains.py"
+  output_path = "${path.module}/trains.zip"
+}
+
+# Trains Lambda function
+resource "aws_lambda_function" "trains" {
+  filename         = data.archive_file.trains_lambda_zip.output_path
+  function_name    = "${var.function_name}-trains"
+  role             = aws_iam_role.lambda_role.arn
+  handler          = "trains.lambda_handler"
+  source_code_hash = data.archive_file.trains_lambda_zip.output_base64sha256
+  runtime          = "python3.12"
+  timeout          = 10
+  memory_size      = 128
+
+  environment {
+    variables = {
+      RTT_USERNAME = var.rtt_username
+      RTT_PASSWORD = var.rtt_password
+    }
+  }
+}
+
+# Lambda integration for trains
+resource "aws_apigatewayv2_integration" "trains_lambda" {
+  api_id             = aws_apigatewayv2_api.t3_api.id
+  integration_type   = "AWS_PROXY"
+  integration_uri    = aws_lambda_function.trains.invoke_arn
+  integration_method = "POST"
+}
+
+# Route for trains endpoint
+resource "aws_apigatewayv2_route" "trains" {
+  api_id    = aws_apigatewayv2_api.t3_api.id
+  route_key = "GET /trains"
+  target    = "integrations/${aws_apigatewayv2_integration.trains_lambda.id}"
+}
+
+# Lambda permission for trains API Gateway
+resource "aws_lambda_permission" "trains_api_gw" {
+  statement_id  = "AllowAPIGatewayInvokeTrains"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.trains.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.t3_api.execution_arn}/*/*"
+}
+
 # Outputs
 output "api_endpoint" {
   description = "API Gateway endpoint URL"
@@ -104,4 +154,9 @@ output "api_endpoint" {
 output "function_name" {
   description = "Lambda function name"
   value       = aws_lambda_function.t3.function_name
+}
+
+output "trains_function_name" {
+  description = "Trains Lambda function name"
+  value       = aws_lambda_function.trains.function_name
 }
