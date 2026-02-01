@@ -23,3 +23,8 @@ Surbiton Station:
 - 490015165B = Stop NK, outbound (towards Hook)
 in trains section, add column for how long till departure in 1/4 minute resolution
 ''
+
+if trains are delayed the should show as orange or red
+
+red flashing for canceled.  notify slack in there are cancellations for the hour starting 9am and the return journey from 5pm
+
