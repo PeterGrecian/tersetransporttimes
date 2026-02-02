@@ -19,22 +19,22 @@ def soap_request(api_key, from_station, to_station, num_services=6):
     """Make SOAP request to Darwin API."""
     soap_body = f'''<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
-               xmlns:typ="http://thalesgroup.com/RTTI/2013-11-28/Token/types"
-               xmlns:ldb="http://thalesgroup.com/RTTI/2017-10-01/ldb/">
+               xmlns:com="http://thalesgroup.com/RTTI/2010-11-01/ldb/commontypes"
+               xmlns:ldb="http://thalesgroup.com/RTTI/2010-11-01/ldb/">
   <soap:Header>
-    <typ:AccessToken>
-      <typ:TokenValue>{api_key}</typ:TokenValue>
-    </typ:AccessToken>
+    <com:AccessToken>
+      <com:TokenValue>{api_key}</com:TokenValue>
+    </com:AccessToken>
   </soap:Header>
   <soap:Body>
-    <ldb:GetDepBoardWithDetailsRequest>
+    <ldb:GetDepartureBoardRequest>
       <ldb:numRows>{num_services}</ldb:numRows>
       <ldb:crs>{from_station}</ldb:crs>
       <ldb:filterCrs>{to_station}</ldb:filterCrs>
       <ldb:filterType>to</ldb:filterType>
       <ldb:timeOffset>0</ldb:timeOffset>
       <ldb:timeWindow>120</ldb:timeWindow>
-    </ldb:GetDepBoardWithDetailsRequest>
+    </ldb:GetDepartureBoardRequest>
   </soap:Body>
 </soap:Envelope>'''
 
@@ -53,27 +53,27 @@ def soap_request(api_key, from_station, to_station, num_services=6):
 
 def parse_darwin_response(xml_data):
     """Parse Darwin SOAP XML response."""
-    # Register namespaces
+    # Register namespaces (using 2021-11-01 version)
     namespaces = {
         'soap': 'http://schemas.xmlsoap.org/soap/envelope/',
-        'lt7': 'http://thalesgroup.com/RTTI/2017-10-01/ldb/',
-        'lt4': 'http://thalesgroup.com/RTTI/2015-11-27/ldb/types',
-        'lt': 'http://thalesgroup.com/RTTI/2012-01-13/ldb/types'
+        'ldb': 'http://thalesgroup.com/RTTI/2021-11-01/ldb/',
+        'lt': 'http://thalesgroup.com/RTTI/2021-11-01/ldb/types',
+        'ct': 'http://thalesgroup.com/RTTI/2021-11-01/ldb/commontypes'
     }
 
     root = ET.fromstring(xml_data)
 
     # Find train services
-    services = root.findall('.//lt7:trainServices/lt7:service', namespaces)
+    services = root.findall('.//ldb:trainServices/ldb:service', namespaces)
 
     departures = []
     for service in services:
         try:
             # Get basic departure info
-            std = service.find('.//lt4:std', namespaces)
-            etd = service.find('.//lt4:etd', namespaces)
-            platform = service.find('.//lt4:platform', namespaces)
-            operator = service.find('.//lt4:operator', namespaces)
+            std = service.find('.//lt:std', namespaces)
+            etd = service.find('.//lt:etd', namespaces)
+            platform = service.find('.//lt:platform', namespaces)
+            operator = service.find('.//lt:operator', namespaces)
 
             std_time = std.text if std is not None else ''
             etd_time = etd.text if etd is not None else 'On time'
@@ -82,7 +82,7 @@ def parse_darwin_response(xml_data):
             cancelled = etd_time == 'Cancelled' if etd is not None else False
 
             # Get subsequent calling points for stops and arrival time
-            calling_points = service.findall('.//lt7:subsequentCallingPoints/lt7:callingPointList/lt7:callingPoint', namespaces)
+            calling_points = service.findall('.//ldb:subsequentCallingPoints/ldb:callingPointList/ldb:callingPoint', namespaces)
 
             stops = len(calling_points) - 1 if calling_points else 0
             arrival_time = ''
@@ -90,7 +90,7 @@ def parse_darwin_response(xml_data):
             # Get destination arrival time (last calling point)
             if calling_points:
                 last_point = calling_points[-1]
-                st = last_point.find('.//lt4:st', namespaces)
+                st = last_point.find('.//lt:st', namespaces)
                 if st is not None:
                     arrival_time = st.text
 
