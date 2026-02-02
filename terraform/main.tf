@@ -115,8 +115,7 @@ resource "aws_lambda_function" "trains" {
 
   environment {
     variables = {
-      RTT_USERNAME = var.rtt_username
-      RTT_PASSWORD = var.rtt_password
+      DARWIN_API_KEY = var.darwin_api_key
     }
   }
 }

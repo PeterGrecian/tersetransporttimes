@@ -15,16 +15,9 @@ variable "tfl_api_key" {
   sensitive   = true
 }
 
-variable "rtt_username" {
+variable "darwin_api_key" {
   type        = string
-  description = "RTT API username"
-  default     = ""
-  sensitive   = true
-}
-
-variable "rtt_password" {
-  type        = string
-  description = "RTT API password"
+  description = "National Rail Darwin API key (get from https://realtime.nationalrail.co.uk/OpenLDBWSRegistration/)"
   default     = ""
   sensitive   = true
 }

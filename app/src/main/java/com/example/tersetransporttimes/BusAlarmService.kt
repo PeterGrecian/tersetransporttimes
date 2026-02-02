@@ -38,6 +38,14 @@ class BusAlarmService : Service() {
             currentRingtone?.stop()
             currentRingtone = null
         }
+
+        fun isRinging(): Boolean {
+            return try {
+                currentRingtone?.isPlaying == true
+            } catch (e: Exception) {
+                false
+            }
+        }
     }
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -47,6 +55,7 @@ class BusAlarmService : Service() {
     private var direction = "inbound"
     private var index = 0
     private var lastAlarmThreshold = Int.MAX_VALUE
+    private var startedAtTime = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -64,8 +73,16 @@ class BusAlarmService : Service() {
         index = intent?.getIntExtra(EXTRA_INDEX, 0) ?: 0
         val initialSeconds = intent?.getIntExtra(EXTRA_INITIAL_SECONDS, 600) ?: 600
 
-        // Set initial threshold so we don't alarm immediately
-        lastAlarmThreshold = (initialSeconds / ALARM_INTERVAL_SECONDS) * ALARM_INTERVAL_SECONDS + ALARM_INTERVAL_SECONDS
+        // Set initial threshold, skipping immediate alarm if close to boundary
+        val currentThreshold = (initialSeconds / ALARM_INTERVAL_SECONDS) * ALARM_INTERVAL_SECONDS
+        val distanceToThreshold = initialSeconds - currentThreshold
+        lastAlarmThreshold = if (distanceToThreshold < 30) {
+            // Close to boundary, skip this threshold
+            maxOf(0, currentThreshold - ALARM_INTERVAL_SECONDS)
+        } else {
+            currentThreshold
+        }
+        startedAtTime = System.currentTimeMillis()
 
         val notification = createNotification("Bus alarm armed")
         startForeground(NOTIFICATION_ID, notification)
@@ -97,8 +114,10 @@ class BusAlarmService : Service() {
                         }
 
                         // Check if we've crossed a 3-minute threshold
+                        // Add 15-second grace period to prevent immediate alarm after arming
                         val currentThreshold = (seconds / ALARM_INTERVAL_SECONDS) * ALARM_INTERVAL_SECONDS
-                        if (currentThreshold < lastAlarmThreshold) {
+                        val timeSinceStart = System.currentTimeMillis() - startedAtTime
+                        if (currentThreshold < lastAlarmThreshold && timeSinceStart > 15_000) {
                             playAlarm()
                             lastAlarmThreshold = currentThreshold
                         }
