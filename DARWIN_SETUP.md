@@ -103,6 +103,16 @@ Instead of replacing trains.py, you can:
 2. Update API Gateway route to use it
 3. Keep trains.py as backup
 
+## Branding Requirements
+
+**IMPORTANT**: If this app is ever published, you must acknowledge National Rail and use their official branding.
+
+- Brand guidelines and logos: http://www.nationalrail.co.uk/static/documents/Brand_Guidelines_Logos.zip
+- Must acknowledge National Rail as the data source
+- Follow brand guidelines for logo usage and attribution
+
+This is a requirement from the Darwin API registration process.
+
 ## Documentation
 
 - [Darwin API Registration](https://realtime.nationalrail.co.uk/OpenLDBWSRegistration/)
