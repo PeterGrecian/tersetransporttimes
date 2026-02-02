@@ -15,9 +15,5 @@ variable "tfl_api_key" {
   sensitive   = true
 }
 
-variable "darwin_api_key" {
-  type        = string
-  description = "National Rail Darwin API key (get from https://realtime.nationalrail.co.uk/OpenLDBWSRegistration/)"
-  default     = ""
-  sensitive   = true
-}
+# Darwin API key is now stored in AWS Secrets Manager (name: darwin-api-key)
+# No longer needed as a Terraform variable

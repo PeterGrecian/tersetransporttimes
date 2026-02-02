@@ -9,42 +9,20 @@
 
 **Note**: The API is free for up to 5 million requests per 4-week period.
 
-## Step 2: Configure API Key
+## Step 2: Store API Key in AWS Secrets Manager
 
-Add the Darwin API key to Terraform variables:
+The API key is securely stored in AWS Secrets Manager (already configured):
 
 ```bash
-cd /home/tot/tersetransporttimes/terraform
+# The secret is already created with name: darwin-api-key
+# In region: eu-west-1
+# ARN: arn:aws:secretsmanager:eu-west-1:700630586062:secret:darwin-api-key-BpL76E
 ```
 
-Edit `terraform.tfvars` (create if it doesn't exist):
-```hcl
-darwin_api_key = "YOUR_API_KEY_HERE"
-```
+**Note**: Terraform is configured to automatically fetch the key from Secrets Manager.
+No need to set environment variables or create `terraform.tfvars`.
 
-Or set as environment variable:
-```bash
-export TF_VAR_darwin_api_key="YOUR_API_KEY_HERE"
-```
-
-## Step 3: Update Terraform Configuration
-
-Add the Darwin API key variable to `terraform/vars.tf`:
-
-```hcl
-variable "darwin_api_key" {
-  type        = string
-  description = "National Rail Darwin API key"
-  default     = ""
-  sensitive   = true
-}
-```
-
-Update the trains Lambda function in `terraform/main.tf` to:
-1. Use `trains_darwin.py` instead of `trains.py`
-2. Add `DARWIN_API_KEY` environment variable
-
-## Step 4: Test Locally
+## Step 3: Test Locally
 
 Before deploying, test the new Darwin implementation:
 
@@ -60,19 +38,25 @@ python3 trains_darwin.py sur wat
 
 You should see JSON output with train departures.
 
-## Step 5: Deploy
+## Step 4: Deploy to AWS Lambda
 
 Once local testing works:
 
 ```bash
-cd terraform
+cd /home/tot/tersetransporttimes/terraform
 
-# Replace trains.py with trains_darwin.py
-mv ../trains.py ../trains_huxley.py.backup
+# Terraform will automatically:
+# 1. Fetch the Darwin API key from AWS Secrets Manager
+# 2. Deploy the trains Lambda function with the key in environment variables
+# 3. Grant the Lambda IAM role permission to read the secret
+
+terraform plan   # Review changes
+terraform apply  # Deploy
+```
+
+**Note**: The current `trains.py` is used. To switch to Darwin API, replace it:
+```bash
 cp ../trains_darwin.py ../trains.py
-
-# Deploy
-terraform apply
 ```
 
 ## Troubleshooting

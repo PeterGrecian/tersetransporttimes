@@ -2,6 +2,15 @@ provider "aws" {
   region = var.aws_region
 }
 
+# Fetch Darwin API key from AWS Secrets Manager
+data "aws_secretsmanager_secret" "darwin_api_key" {
+  name = "darwin-api-key"
+}
+
+data "aws_secretsmanager_secret_version" "darwin_api_key" {
+  secret_id = data.aws_secretsmanager_secret.darwin_api_key.id
+}
+
 # IAM role for Lambda
 resource "aws_iam_role" "lambda_role" {
   name = "t3_lambda_role"
@@ -24,6 +33,25 @@ resource "aws_iam_role" "lambda_role" {
 resource "aws_iam_role_policy_attachment" "lambda_basic" {
   role       = aws_iam_role.lambda_role.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+# IAM policy to allow Lambda to read Darwin API key from Secrets Manager
+resource "aws_iam_role_policy" "lambda_secrets" {
+  name = "lambda_secrets_access"
+  role = aws_iam_role.lambda_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue"
+        ]
+        Resource = data.aws_secretsmanager_secret.darwin_api_key.arn
+      }
+    ]
+  })
 }
 
 # Lambda function
@@ -115,7 +143,7 @@ resource "aws_lambda_function" "trains" {
 
   environment {
     variables = {
-      DARWIN_API_KEY = var.darwin_api_key
+      DARWIN_API_KEY = data.aws_secretsmanager_secret_version.darwin_api_key.secret_string
     }
   }
 }
