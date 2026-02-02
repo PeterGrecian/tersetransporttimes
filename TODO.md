@@ -27,3 +27,8 @@ Parklands:
 Surbiton Station:
 - 490015165A = Stop NC, inbound (towards Kingston)
 - 490015165B = Stop NK, outbound (towards Hook)
+
+if trains are delayed the should show as orange or red
+
+red flashing for canceled.  notify slack in there are cancellations for the hour starting 9am and the return journey from 5pm
+
