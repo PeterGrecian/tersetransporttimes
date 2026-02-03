@@ -1,129 +1,172 @@
 #!/usr/bin/env python3
 """
-trains.py - Train times from Surbiton to Waterloo via Huxley2 (Darwin proxy)
+trains_darwin.py - Train times from Surbiton to Waterloo via National Rail Darwin API
 
-Uses the free Huxley2 demo server - no API key required.
-https://huxley2.azurewebsites.net/
+Uses the official National Rail Darwin OpenLDBWS SOAP API.
+Requires API key from: https://realtime.nationalrail.co.uk/OpenLDBWSRegistration/
 """
 
 import json
 import urllib.request
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
 
-HUXLEY2_BASE = "https://huxley2.azurewebsites.net"
+DARWIN_ENDPOINT = "https://lite.realtime.nationalrail.co.uk/OpenLDBWS/ldb12.asmx"
 
 
-def fetch_service_details(service_id):
-    """Fetch detailed service info including calling points."""
-    url = f"{HUXLEY2_BASE}/service/{service_id}"
-    try:
-        req = urllib.request.Request(url)
-        req.add_header('User-Agent', 't3-trains/1.0')
-        req.add_header('Accept', 'application/json')
-        with urllib.request.urlopen(req, timeout=10) as response:
-            return json.loads(response.read().decode())
-    except Exception as e:
-        print(f"Error fetching service details for {service_id}: {e}")
-        return None
+def soap_request(api_key, from_station, to_station, num_services=6):
+    """Make SOAP request to Darwin API (ldb12, WSDL version 2021-11-01)."""
+    soap_body = f'''<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+               xmlns:tok="http://thalesgroup.com/RTTI/2013-11-28/Token/types"
+               xmlns:ldb="http://thalesgroup.com/RTTI/2021-11-01/ldb/">
+  <soap:Header>
+    <tok:AccessToken>
+      <tok:TokenValue>{api_key}</tok:TokenValue>
+    </tok:AccessToken>
+  </soap:Header>
+  <soap:Body>
+    <ldb:GetDepBoardWithDetailsRequest>
+      <ldb:numRows>{num_services}</ldb:numRows>
+      <ldb:crs>{from_station}</ldb:crs>
+      <ldb:filterCrs>{to_station}</ldb:filterCrs>
+      <ldb:filterType>to</ldb:filterType>
+      <ldb:timeOffset>0</ldb:timeOffset>
+      <ldb:timeWindow>120</ldb:timeWindow>
+    </ldb:GetDepBoardWithDetailsRequest>
+  </soap:Body>
+</soap:Envelope>'''
+
+    req = urllib.request.Request(
+        DARWIN_ENDPOINT,
+        data=soap_body.encode('utf-8'),
+        headers={
+            'Content-Type': 'text/xml; charset=utf-8',
+            'SOAPAction': 'http://thalesgroup.com/RTTI/2015-05-14/ldb/GetDepBoardWithDetails'
+        }
+    )
+
+    with urllib.request.urlopen(req, timeout=10) as response:
+        return response.read().decode('utf-8')
 
 
-def parse_time_mins(time_str):
-    """Convert HH:MM to minutes since midnight."""
-    try:
-        h, m = time_str.split(':')
-        return int(h) * 60 + int(m)
-    except:
-        return 0
+def parse_darwin_response(xml_data):
+    """Parse Darwin SOAP XML response (ldb12 / 2021-11-01)."""
+    # Response uses multiple versioned namespaces
+    ns = {
+        'lt4': 'http://thalesgroup.com/RTTI/2015-11-27/ldb/types',   # std, etd, platform, operator
+        'lt8': 'http://thalesgroup.com/RTTI/2021-11-01/ldb/types',   # trainServices, callingPoints
+    }
+
+    root = ET.fromstring(xml_data)
+
+    # Find train services
+    services = root.findall('.//lt8:trainServices/lt8:service', ns)
+
+    departures = []
+    for service in services:
+        try:
+            # Get basic departure info
+            std = service.find('lt4:std', ns)
+            etd = service.find('lt4:etd', ns)
+            platform = service.find('lt4:platform', ns)
+            operator = service.find('lt4:operator', ns)
+
+            std_time = std.text if std is not None else ''
+            etd_time = etd.text if etd is not None else 'On time'
+
+            # Check if cancelled
+            cancelled = etd_time == 'Cancelled' if etd is not None else False
+
+            # Get subsequent calling points for stops and arrival time
+            calling_points = service.findall('.//lt8:subsequentCallingPoints/lt8:callingPointList/lt8:callingPoint', ns)
+            stops = len(calling_points) - 1 if calling_points else 0
+            arrival_time = ''
+
+            # Get destination arrival time (last calling point)
+            if calling_points:
+                last_point = calling_points[-1]
+                st = last_point.find('lt8:st', ns)
+                if st is not None:
+                    arrival_time = st.text
+
+            # Calculate journey minutes
+            journey_mins = 0
+            if std_time and arrival_time:
+                try:
+                    std_mins = int(std_time[:2]) * 60 + int(std_time[3:5])
+                    arr_mins = int(arrival_time[:2]) * 60 + int(arrival_time[3:5])
+                    journey_mins = arr_mins - std_mins
+                    if journey_mins < 0:
+                        journey_mins += 1440  # Handle midnight crossing
+                except:
+                    pass
+
+            # Calculate delay
+            delay_mins = 0
+            expected_dep = std_time
+            if etd_time not in ('On time', 'Delayed', 'Cancelled', ''):
+                try:
+                    std_mins = int(std_time[:2]) * 60 + int(std_time[3:5])
+                    etd_mins = int(etd_time[:2]) * 60 + int(etd_time[3:5])
+                    delay_mins = etd_mins - std_mins
+                    if delay_mins < -720:
+                        delay_mins += 1440
+                    expected_dep = etd_time
+                except:
+                    pass
+
+            # Calculate ETA
+            eta = ''
+            if arrival_time:
+                try:
+                    arr_mins = int(arrival_time[:2]) * 60 + int(arrival_time[3:5])
+                    eta_mins = arr_mins + delay_mins
+                    eta = f"{(eta_mins // 60) % 24:02d}{eta_mins % 60:02d}"
+                except:
+                    pass
+
+            departures.append({
+                'scheduledDeparture': std_time.replace(':', ''),
+                'expectedDeparture': expected_dep.replace(':', ''),
+                'arrivalTime': arrival_time.replace(':', '') if arrival_time else '',
+                'eta': eta,
+                'journeyMins': journey_mins,
+                'stops': stops,
+                'delayMinutes': delay_mins,
+                'cancelled': cancelled,
+                'status': etd_time
+            })
+
+        except Exception as e:
+            print(f"Error parsing service: {e}")
+            continue
+
+    return departures
 
 
-def fetch_departures(origin="sur", destination="wat"):
+def fetch_departures(origin="sur", destination="wat", api_key=None):
     """
-    Fetch train departures via Huxley2.
+    Fetch train departures via Darwin API.
     origin/destination are CRS codes: sur=Surbiton, wat=Waterloo
-    Returns list of departure dicts and optional error message.
     """
-    url = f"{HUXLEY2_BASE}/departures/{origin}/to/{destination}"
+    if not api_key:
+        return [], "No Darwin API key provided"
+
+    origin_upper = origin.upper()
+    destination_upper = destination.upper()
 
     try:
-        req = urllib.request.Request(url)
-        req.add_header('User-Agent', 't3-trains/1.0')
-        req.add_header('Accept', 'application/json')
-
-        print(f"Fetching trains from: {url}")
-        with urllib.request.urlopen(req, timeout=10) as response:
-            data = json.loads(response.read().decode())
-            print(f"Got response, trainServices count: {len(data.get('trainServices', []))}")
+        print(f"Fetching Darwin data: {origin_upper} to {destination_upper}")
+        xml_response = soap_request(api_key, origin_upper, destination_upper)
+        print("Got Darwin response, parsing...")
+        departures = parse_darwin_response(xml_response)
+        print(f"Parsed {len(departures)} departures")
+        return departures, None
     except Exception as e:
-        print(f"Error fetching departures: {type(e).__name__}: {e}")
+        print(f"Error fetching Darwin data: {type(e).__name__}: {e}")
         return [], str(e)
-
-    services = data.get('trainServices') or []
-    results = []
-
-    for service in services[:6]:  # Limit to next 6 trains
-        # Get scheduled departure time
-        scheduled = service.get('std', '')
-        etd = service.get('etd', '')
-
-        # Check if cancelled
-        cancelled = service.get('isCancelled', False) or etd == 'Cancelled'
-
-        # Get service details for stops and arrival time
-        service_id = service.get('serviceIdUrlSafe', '')
-        stops = 0
-        journey_mins = 0
-        arrival_time = ''
-
-        if service_id and not cancelled:
-            details = fetch_service_details(service_id)
-            if details:
-                # Count stops and find destination arrival
-                for group in details.get('subsequentCallingPoints', []):
-                    for cp in group.get('callingPoint', []):
-                        if cp.get('crs', '').upper() == destination.upper():
-                            arrival_time = cp.get('st', '')
-                            if scheduled and arrival_time:
-                                dep_mins = parse_time_mins(scheduled)
-                                arr_mins = parse_time_mins(arrival_time)
-                                journey_mins = arr_mins - dep_mins
-                                if journey_mins < 0:
-                                    journey_mins += 1440  # Handle midnight
-                        else:
-                            stops += 1
-
-        # Calculate delay
-        delay_mins = 0
-        if etd and etd not in ('On time', 'Delayed', 'Cancelled'):
-            try:
-                sched_mins = parse_time_mins(scheduled)
-                exp_mins = parse_time_mins(etd)
-                delay_mins = exp_mins - sched_mins
-                if delay_mins < -720:
-                    delay_mins += 1440
-            except:
-                pass
-
-        # Calculate ETA (arrival + delay)
-        eta = ''
-        if arrival_time:
-            arr_mins = parse_time_mins(arrival_time)
-            eta_mins = arr_mins + delay_mins
-            eta = f"{(eta_mins // 60) % 24:02d}{eta_mins % 60:02d}"
-
-        results.append({
-            'scheduledDeparture': scheduled.replace(':', ''),
-            'expectedDeparture': etd if etd not in ('On time', 'Delayed', 'Cancelled') else scheduled.replace(':', ''),
-            'arrivalTime': arrival_time.replace(':', '') if arrival_time else '',
-            'eta': eta,
-            'journeyMins': journey_mins,
-            'stops': stops,
-            'delayMinutes': delay_mins,
-            'cancelled': cancelled,
-            'status': etd
-        })
-
-    return results, None
 
 
 STATION_NAMES = {
@@ -144,18 +187,29 @@ def format_json(departures, origin, destination):
 
 def lambda_handler(event, context):
     """AWS Lambda entry point."""
+    import os
+
     cors_headers = {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Headers': 'Content-Type,Accept',
         'Access-Control-Allow-Methods': 'GET,OPTIONS'
     }
 
-    # Get direction from query params (default: Surbiton to Waterloo)
+    # Get Darwin API key from environment
+    api_key = os.environ.get('DARWIN_API_KEY')
+    if not api_key:
+        return {
+            'statusCode': 500,
+            'body': json.dumps({'error': 'Darwin API key not configured'}),
+            'headers': {'Content-Type': 'application/json', **cors_headers}
+        }
+
+    # Get direction from query params
     params = event.get('queryStringParameters') or {}
     origin = params.get('from', 'sur')
     destination = params.get('to', 'wat')
 
-    departures, error = fetch_departures(origin, destination)
+    departures, error = fetch_departures(origin, destination, api_key)
 
     if error:
         return {
@@ -172,11 +226,20 @@ def lambda_handler(event, context):
 
 
 if __name__ == '__main__':
-    # For local testing
     import sys
+    import os
+
+    # For local testing - set DARWIN_API_KEY environment variable
+    api_key = os.environ.get('DARWIN_API_KEY')
+    if not api_key:
+        print("Error: Set DARWIN_API_KEY environment variable")
+        print("Get your key from: https://realtime.nationalrail.co.uk/OpenLDBWSRegistration/")
+        sys.exit(1)
+
     origin = sys.argv[1] if len(sys.argv) > 1 else 'sur'
     destination = sys.argv[2] if len(sys.argv) > 2 else 'wat'
-    departures, error = fetch_departures(origin, destination)
+
+    departures, error = fetch_departures(origin, destination, api_key)
     if error:
         print(f"Error: {error}")
     else:
