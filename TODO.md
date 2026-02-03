@@ -45,3 +45,5 @@ Surbiton Station:
 - [ ] Show bus alternatives in the app when train disruption is detected
 - [ ] Consider a single `/journey` endpoint that returns both and flags alternatives
 
+ when changing to train page it does not say how long it took to refresh
+rename t3 bus to t3
