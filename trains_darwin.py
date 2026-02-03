@@ -12,38 +12,38 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
 
-DARWIN_WSDL = "https://lite.realtime.nationalrail.co.uk/OpenLDBWS/ldb11.asmx"
+DARWIN_ENDPOINT = "https://lite.realtime.nationalrail.co.uk/OpenLDBWS/ldb12.asmx"
 
 
 def soap_request(api_key, from_station, to_station, num_services=6):
-    """Make SOAP request to Darwin API."""
+    """Make SOAP request to Darwin API (ldb12, WSDL version 2021-11-01)."""
     soap_body = f'''<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
-               xmlns:com="http://thalesgroup.com/RTTI/2010-11-01/ldb/commontypes"
-               xmlns:ldb="http://thalesgroup.com/RTTI/2010-11-01/ldb/">
+               xmlns:tok="http://thalesgroup.com/RTTI/2013-11-28/Token/types"
+               xmlns:ldb="http://thalesgroup.com/RTTI/2021-11-01/ldb/">
   <soap:Header>
-    <com:AccessToken>
-      <com:TokenValue>{api_key}</com:TokenValue>
-    </com:AccessToken>
+    <tok:AccessToken>
+      <tok:TokenValue>{api_key}</tok:TokenValue>
+    </tok:AccessToken>
   </soap:Header>
   <soap:Body>
-    <ldb:GetDepartureBoardRequest>
+    <ldb:GetDepBoardWithDetailsRequest>
       <ldb:numRows>{num_services}</ldb:numRows>
       <ldb:crs>{from_station}</ldb:crs>
       <ldb:filterCrs>{to_station}</ldb:filterCrs>
       <ldb:filterType>to</ldb:filterType>
       <ldb:timeOffset>0</ldb:timeOffset>
       <ldb:timeWindow>120</ldb:timeWindow>
-    </ldb:GetDepartureBoardRequest>
+    </ldb:GetDepBoardWithDetailsRequest>
   </soap:Body>
 </soap:Envelope>'''
 
     req = urllib.request.Request(
-        DARWIN_WSDL,
+        DARWIN_ENDPOINT,
         data=soap_body.encode('utf-8'),
         headers={
             'Content-Type': 'text/xml; charset=utf-8',
-            'SOAPAction': 'http://thalesgroup.com/RTTI/2017-10-01/ldb/GetDepBoardWithDetails'
+            'SOAPAction': 'http://thalesgroup.com/RTTI/2015-05-14/ldb/GetDepBoardWithDetails'
         }
     )
 
@@ -52,28 +52,26 @@ def soap_request(api_key, from_station, to_station, num_services=6):
 
 
 def parse_darwin_response(xml_data):
-    """Parse Darwin SOAP XML response."""
-    # Register namespaces (using 2021-11-01 version)
-    namespaces = {
-        'soap': 'http://schemas.xmlsoap.org/soap/envelope/',
-        'ldb': 'http://thalesgroup.com/RTTI/2021-11-01/ldb/',
-        'lt': 'http://thalesgroup.com/RTTI/2021-11-01/ldb/types',
-        'ct': 'http://thalesgroup.com/RTTI/2021-11-01/ldb/commontypes'
+    """Parse Darwin SOAP XML response (ldb12 / 2021-11-01)."""
+    # Response uses multiple versioned namespaces
+    ns = {
+        'lt4': 'http://thalesgroup.com/RTTI/2015-11-27/ldb/types',   # std, etd, platform, operator
+        'lt8': 'http://thalesgroup.com/RTTI/2021-11-01/ldb/types',   # trainServices, callingPoints
     }
 
     root = ET.fromstring(xml_data)
 
     # Find train services
-    services = root.findall('.//ldb:trainServices/ldb:service', namespaces)
+    services = root.findall('.//lt8:trainServices/lt8:service', ns)
 
     departures = []
     for service in services:
         try:
             # Get basic departure info
-            std = service.find('.//lt:std', namespaces)
-            etd = service.find('.//lt:etd', namespaces)
-            platform = service.find('.//lt:platform', namespaces)
-            operator = service.find('.//lt:operator', namespaces)
+            std = service.find('lt4:std', ns)
+            etd = service.find('lt4:etd', ns)
+            platform = service.find('lt4:platform', ns)
+            operator = service.find('lt4:operator', ns)
 
             std_time = std.text if std is not None else ''
             etd_time = etd.text if etd is not None else 'On time'
@@ -82,15 +80,14 @@ def parse_darwin_response(xml_data):
             cancelled = etd_time == 'Cancelled' if etd is not None else False
 
             # Get subsequent calling points for stops and arrival time
-            calling_points = service.findall('.//ldb:subsequentCallingPoints/ldb:callingPointList/ldb:callingPoint', namespaces)
-
+            calling_points = service.findall('.//lt8:subsequentCallingPoints/lt8:callingPointList/lt8:callingPoint', ns)
             stops = len(calling_points) - 1 if calling_points else 0
             arrival_time = ''
 
             # Get destination arrival time (last calling point)
             if calling_points:
                 last_point = calling_points[-1]
-                st = last_point.find('.//lt:st', namespaces)
+                st = last_point.find('lt8:st', ns)
                 if st is not None:
                     arrival_time = st.text
 
