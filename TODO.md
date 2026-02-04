@@ -48,3 +48,7 @@ Surbiton Station:
 rename t3 bus to t3 and add a train to the logo
 
 when access to the API failes because of lack of internet connectivity a more friendly warning should be issued "Don't Panic!"  Trying again in 10 seconds.  with a countdown
+
+
+the return journey from Waterloo is weird.  Some have 11 stops!  The departure time is ok, its not there and back is it?  The tab sould be called "Waterloo" not Sur"  maybe WAT.  
+
