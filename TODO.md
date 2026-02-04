@@ -40,10 +40,11 @@ Surbiton Station:
 - [ ] Darwin API already returns `cancelled` and `delayMinutes` fields - ready to act on
 
 ## Bus-train integration
-- [ ] When a train is delayed/cancelled, check if there's a viable bus alternative
+- [ ] it should be possible to calculate from the bus API arrival time at Surbiton station and how long it takes me to get to the platform from the bus stop which trains I can catch.
 - [ ] t3.py (bus) and trains_darwin.py (trains) already run as separate Lambdas - could add a combined endpoint
-- [ ] Show bus alternatives in the app when train disruption is detected
 - [ ] Consider a single `/journey` endpoint that returns both and flags alternatives
 
  when changing to train page it does not say how long it took to refresh
-rename t3 bus to t3
+rename t3 bus to t3 and add a train to the logo
+
+when access to the API failes because of lack of internet connectivity a more friendly warning should be issued "Don't Panic!"  Trying again in 10 seconds.  with a countdown
