@@ -51,7 +51,7 @@ def soap_request(api_key, from_station, to_station, num_services=6):
         return response.read().decode('utf-8')
 
 
-def parse_darwin_response(xml_data):
+def parse_darwin_response(xml_data, to_station):
     """Parse Darwin SOAP XML response (ldb12 / 2021-11-01)."""
     # Response uses multiple versioned namespaces
     ns = {
@@ -193,7 +193,7 @@ def fetch_departures(origin="sur", destination="wat", api_key=None):
         print(f"Fetching Darwin data: {origin_upper} to {destination_upper}")
         xml_response = soap_request(api_key, origin_upper, destination_upper)
         print("Got Darwin response, parsing...")
-        departures = parse_darwin_response(xml_response)
+        departures = parse_darwin_response(xml_response, destination_upper)
         print(f"Parsed {len(departures)} departures")
         return departures, None
     except Exception as e:
