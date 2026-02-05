@@ -1023,7 +1023,8 @@ fun TrainDepartureRow(departure: TrainDeparture) {
         else -> Color(0xFF4A9EFF)
     }
 
-    val displayTime = formatTrainTime(departure.scheduledDeparture)
+    val displayTime = formatTrainTime(departure.scheduledDeparture) +
+        if (departure.delayMinutes > 0) "+${departure.delayMinutes}" else ""
     val etaTime = formatTrainTime(departure.eta)
     val tillDeparture = calculateMinutesTillDeparture(
         if (departure.expectedDeparture.isNotEmpty()) departure.expectedDeparture
@@ -1038,10 +1039,10 @@ fun TrainDepartureRow(departure: TrainDeparture) {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Departure time (scheduled - always gray)
+        // Departure time (gray if on time, orange if delayed)
         Text(
             text = displayTime,
-            color = Color(0xFF888888),
+            color = if (departure.delayMinutes > 0) Color(0xFFFF9500) else Color(0xFF888888),
             fontSize = 28.sp,
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Bold
