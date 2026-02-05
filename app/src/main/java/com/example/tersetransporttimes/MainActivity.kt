@@ -79,6 +79,13 @@ const val SURBITON_RADIUS_METERS = 400f
 const val WATERLOO_LAT = 51.5031
 const val WATERLOO_LON = -0.1132
 
+// Debug location override for train times
+enum class DebugLocation {
+    AUTO,      // Use actual GPS location
+    HOME,      // Force Parklands (morning commute: SUR→WAT)
+    WATERLOO   // Force Waterloo (evening commute: WAT→SUR)
+}
+
 // Location mode determines which stop and directions to show
 enum class LocationMode {
     NEAR_HOME,      // Near Parklands - show only inbound (to Kingston)
@@ -848,6 +855,16 @@ fun TrainTimesScreen() {
     var userLon by remember { mutableStateOf<Double?>(null) }
     var lastRefreshDurationMs by remember { mutableLongStateOf(0L) }
     var showRefreshedMessage by remember { mutableStateOf(false) }
+    var debugLocation by remember { mutableStateOf(DebugLocation.AUTO) }
+
+    // Helper to get effective location (debug override or actual GPS)
+    fun getEffectiveLocation(): Pair<Double?, Double?> {
+        return when (debugLocation) {
+            DebugLocation.HOME -> Pair(PARKLANDS_LAT, PARKLANDS_LON)
+            DebugLocation.WATERLOO -> Pair(WATERLOO_LAT, WATERLOO_LON)
+            DebugLocation.AUTO -> Pair(userLat, userLon)
+        }
+    }
 
     // Get location once on first load
     LaunchedEffect(Unit) {
@@ -869,7 +886,7 @@ fun TrainTimesScreen() {
     }
 
     // Auto-refresh countdown
-    LaunchedEffect(countdown) {
+    LaunchedEffect(countdown, debugLocation) {
         if (countdown > 0) {
             delay(1000)
             countdown--
@@ -883,7 +900,8 @@ fun TrainTimesScreen() {
             val startTime = System.currentTimeMillis()
             try {
                 delay(500) // Rate limit protection
-                trainData = fetchTrainTimes(userLat, userLon)
+                val (lat, lon) = getEffectiveLocation()
+                trainData = fetchTrainTimes(lat, lon)
                 lastRefreshDurationMs = System.currentTimeMillis() - startTime
                 isLoading = false
                 showRefreshedMessage = true
@@ -900,7 +918,8 @@ fun TrainTimesScreen() {
     LaunchedEffect(Unit) {
         try {
             delay(500)
-            trainData = fetchTrainTimes(userLat, userLon)
+            val (lat, lon) = getEffectiveLocation()
+            trainData = fetchTrainTimes(lat, lon)
             isLoading = false
             countdown = 30
         } catch (e: Exception) {
@@ -921,12 +940,41 @@ fun TrainTimesScreen() {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "Surbiton \u2192 Waterloo",
+                text = trainData?.let { "${it.originName} \u2192 ${it.destinationName}" }
+                    ?: "Surbiton \u2192 Waterloo",
                 color = Color.White,
                 fontSize = 20.sp,
                 fontFamily = FontFamily.SansSerif,
                 modifier = Modifier.padding(top = 16.dp)
             )
+
+            // Debug location buttons
+            Row(
+                modifier = Modifier.padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                DebugLocation.values().forEach { loc ->
+                    Button(
+                        onClick = {
+                            debugLocation = loc
+                            countdown = 0  // Trigger immediate refresh
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (debugLocation == loc) Color(0xFF4A9EFF) else Color(0xFF2A2A2A)
+                        ),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Text(
+                            text = when(loc) {
+                                DebugLocation.AUTO -> "Auto"
+                                DebugLocation.HOME -> "Home"
+                                DebugLocation.WATERLOO -> "WAT"
+                            },
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            }
 
             if (error == null || trainData != null) {
                 Text(

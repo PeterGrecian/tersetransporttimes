@@ -81,15 +81,28 @@ def parse_darwin_response(xml_data):
 
             # Get subsequent calling points for stops and arrival time
             calling_points = service.findall('.//lt8:subsequentCallingPoints/lt8:callingPointList/lt8:callingPoint', ns)
-            stops = len(calling_points) - 1 if calling_points else 0
+            stops = 0
             arrival_time = ''
 
-            # Get destination arrival time (last calling point)
+            # Find the destination station in calling points and count only stops UP TO it
+            # (trains may continue past the destination)
             if calling_points:
-                last_point = calling_points[-1]
-                st = last_point.find('lt8:st', ns)
-                if st is not None:
-                    arrival_time = st.text
+                dest_index = -1
+                for i, point in enumerate(calling_points):
+                    crs = point.find('lt8:crs', ns)
+                    if crs is not None and crs.text and crs.text.upper() == to_station.upper():
+                        dest_index = i
+                        st = point.find('lt8:st', ns)
+                        if st is not None:
+                            arrival_time = st.text
+                        break
+
+                # If destination found, count stops up to (not including) it
+                # Otherwise fall back to counting all stops - 1
+                if dest_index >= 0:
+                    stops = dest_index  # stops before destination
+                else:
+                    stops = len(calling_points) - 1
 
             # Calculate journey minutes
             journey_mins = 0
