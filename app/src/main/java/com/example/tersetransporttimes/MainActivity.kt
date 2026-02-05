@@ -376,7 +376,7 @@ fun BusTimesScreen(locationMode: LocationMode?) {
                 showRefreshedMessage = true
                 countdown = 30
             } catch (e: Exception) {
-                error = e.message
+                error = e.message ?: "No connection"
                 isLoading = false
                 countdown = 10
             }
@@ -408,7 +408,7 @@ fun BusTimesScreen(locationMode: LocationMode?) {
                 showRefreshedMessage = true
                 countdown = 30
             } catch (e: Exception) {
-                error = e.message
+                error = e.message ?: "No connection"
                 isLoading = false
                 countdown = 10
             }
@@ -431,7 +431,7 @@ fun BusTimesScreen(locationMode: LocationMode?) {
             showRefreshedMessage = true
             countdown = 30
         } catch (e: Exception) {
-            error = e.message
+            error = e.message ?: "No connection"
             isLoading = false
             countdown = 10
         }
@@ -889,7 +889,7 @@ fun TrainTimesScreen() {
                 showRefreshedMessage = true
                 countdown = 30
             } catch (e: Exception) {
-                error = e.message
+                error = e.message ?: "No connection"
                 isLoading = false
                 countdown = 10
             }
@@ -904,7 +904,7 @@ fun TrainTimesScreen() {
             isLoading = false
             countdown = 30
         } catch (e: Exception) {
-            error = e.message
+            error = e.message ?: "No connection"
             isLoading = false
             countdown = 10
         }
