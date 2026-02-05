@@ -201,7 +201,7 @@ class BusAlarmService : Service() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("T3 Bus")
+            .setContentTitle("T3")
             .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setContentIntent(openPendingIntent)

@@ -374,11 +374,12 @@ fun BusTimesScreen(locationMode: LocationMode?) {
                 checkAlarm(data)
                 isLoading = false
                 showRefreshedMessage = true
+                countdown = 30
             } catch (e: Exception) {
                 error = e.message
                 isLoading = false
+                countdown = 10
             }
-            countdown = 30
         }
     }
 
@@ -405,11 +406,12 @@ fun BusTimesScreen(locationMode: LocationMode?) {
                 checkAlarm(data)
                 isLoading = false
                 showRefreshedMessage = true
+                countdown = 30
             } catch (e: Exception) {
                 error = e.message
                 isLoading = false
+                countdown = 10
             }
-            countdown = 30
         }
     }
 
@@ -427,9 +429,11 @@ fun BusTimesScreen(locationMode: LocationMode?) {
             checkAlarm(data)
             isLoading = false
             showRefreshedMessage = true
+            countdown = 30
         } catch (e: Exception) {
             error = e.message
             isLoading = false
+            countdown = 10
         }
     }
 
@@ -459,30 +463,35 @@ fun BusTimesScreen(locationMode: LocationMode?) {
             )
 
             // Refresh countdown or status
-            Text(
-                text = if (showRefreshedMessage) {
-                    "refreshed in ${formatRefreshDuration(lastRefreshDurationMs)}"
-                } else {
-                    "refresh in ${countdown}s"
-                },
-                color = Color(0xFF888888),
-                fontSize = 14.sp,
-                modifier = Modifier.padding(top = 8.dp, bottom = 40.dp)
-            )
+            if (error == null || busData != null) {
+                Text(
+                    text = if (showRefreshedMessage) {
+                        "refreshed in ${formatRefreshDuration(lastRefreshDurationMs)}"
+                    } else {
+                        "refresh in ${countdown}s"
+                    },
+                    color = Color(0xFF888888),
+                    fontSize = 14.sp,
+                    modifier = Modifier.padding(top = 8.dp, bottom = 40.dp)
+                )
+            }
 
             if (isLoading && busData == null) {
                 CircularProgressIndicator(color = Color(0xFF4A9EFF))
             } else if (error != null && busData == null) {
-                Text(text = "Error: $error", color = Color.Red)
+                Spacer(modifier = Modifier.height(40.dp))
+                Text(
+                    text = "Don't Panic!",
+                    color = Color.White,
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Bold
+                )
                 Spacer(modifier = Modifier.height(16.dp))
-                Button(
-                    onClick = {
-                        countdown = 0 // Trigger reload
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4A9EFF))
-                ) {
-                    Text("Retry")
-                }
+                Text(
+                    text = "Trying again in ${countdown}s",
+                    color = Color(0xFF888888),
+                    fontSize = 16.sp
+                )
             } else {
                 busData?.let { data ->
                     when (locationMode) {
@@ -878,11 +887,12 @@ fun TrainTimesScreen() {
                 lastRefreshDurationMs = System.currentTimeMillis() - startTime
                 isLoading = false
                 showRefreshedMessage = true
+                countdown = 30
             } catch (e: Exception) {
                 error = e.message
                 isLoading = false
+                countdown = 10
             }
-            countdown = 30
         }
     }
 
@@ -892,9 +902,11 @@ fun TrainTimesScreen() {
             delay(500)
             trainData = fetchTrainTimes(userLat, userLon)
             isLoading = false
+            countdown = 30
         } catch (e: Exception) {
             error = e.message
             isLoading = false
+            countdown = 10
         }
     }
 
@@ -916,28 +928,35 @@ fun TrainTimesScreen() {
                 modifier = Modifier.padding(top = 16.dp)
             )
 
-            Text(
-                text = if (showRefreshedMessage) {
-                    "refreshed in ${formatRefreshDuration(lastRefreshDurationMs)}"
-                } else {
-                    "refresh in ${countdown}s"
-                },
-                color = Color(0xFF888888),
-                fontSize = 14.sp,
-                modifier = Modifier.padding(top = 8.dp, bottom = 24.dp)
-            )
+            if (error == null || trainData != null) {
+                Text(
+                    text = if (showRefreshedMessage) {
+                        "refreshed in ${formatRefreshDuration(lastRefreshDurationMs)}"
+                    } else {
+                        "refresh in ${countdown}s"
+                    },
+                    color = Color(0xFF888888),
+                    fontSize = 14.sp,
+                    modifier = Modifier.padding(top = 8.dp, bottom = 24.dp)
+                )
+            }
 
             if (isLoading && trainData == null) {
                 CircularProgressIndicator(color = Color(0xFF4A9EFF))
             } else if (error != null && trainData == null) {
-                Text(text = "Error: $error", color = Color.Red)
+                Spacer(modifier = Modifier.height(40.dp))
+                Text(
+                    text = "Don't Panic!",
+                    color = Color.White,
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Bold
+                )
                 Spacer(modifier = Modifier.height(16.dp))
-                Button(
-                    onClick = { countdown = 0 },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4A9EFF))
-                ) {
-                    Text("Retry")
-                }
+                Text(
+                    text = "Trying again in ${countdown}s",
+                    color = Color(0xFF888888),
+                    fontSize = 16.sp
+                )
             } else {
                 trainData?.departures?.forEach { departure ->
                     TrainDepartureRow(departure)
