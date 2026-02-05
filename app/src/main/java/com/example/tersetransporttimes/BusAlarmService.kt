@@ -29,7 +29,6 @@ class BusAlarmService : Service() {
         const val EXTRA_INDEX = "index"
         const val EXTRA_INITIAL_SECONDS = "initial_seconds"
 
-        const val ALARM_INTERVAL_SECONDS = 180 // 3 minutes
         const val CHECK_INTERVAL_MS = 30_000L // 30 seconds
 
         var isRunning = false
@@ -74,15 +73,7 @@ class BusAlarmService : Service() {
         index = intent?.getIntExtra(EXTRA_INDEX, 0) ?: 0
         val initialSeconds = intent?.getIntExtra(EXTRA_INITIAL_SECONDS, 600) ?: 600
 
-        // Set initial threshold, skipping immediate alarm if close to boundary
-        val currentThreshold = (initialSeconds / ALARM_INTERVAL_SECONDS) * ALARM_INTERVAL_SECONDS
-        val distanceToThreshold = initialSeconds - currentThreshold
-        lastAlarmThreshold = if (distanceToThreshold < 30) {
-            // Close to boundary, skip this threshold
-            maxOf(0, currentThreshold - ALARM_INTERVAL_SECONDS)
-        } else {
-            currentThreshold
-        }
+        lastAlarmThreshold = calculateInitialAlarmThreshold(initialSeconds)
         startedAtTime = System.currentTimeMillis()
 
         val notification = createNotification("Bus alarm armed")
@@ -135,7 +126,7 @@ class BusAlarmService : Service() {
         try {
             val client = OkHttpClient()
             val request = Request.Builder()
-                .url("https://w3.petergrecian.co.uk/t3?stop=$stop")
+                .url("$API_BASE_URL/t3?stop=$stop")
                 .header("Accept", "application/json")
                 .build()
 

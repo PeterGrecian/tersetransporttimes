@@ -100,7 +100,7 @@ def parse_darwin_response(xml_data):
                     journey_mins = arr_mins - std_mins
                     if journey_mins < 0:
                         journey_mins += 1440  # Handle midnight crossing
-                except:
+                except (ValueError, IndexError):
                     pass
 
             # Calculate delay
@@ -114,7 +114,7 @@ def parse_darwin_response(xml_data):
                     if delay_mins < -720:
                         delay_mins += 1440
                     expected_dep = etd_time
-                except:
+                except (ValueError, IndexError):
                     pass
 
             # Calculate ETA
@@ -124,7 +124,7 @@ def parse_darwin_response(xml_data):
                     arr_mins = int(arrival_time[:2]) * 60 + int(arrival_time[3:5])
                     eta_mins = arr_mins + delay_mins
                     eta = f"{(eta_mins // 60) % 24:02d}{eta_mins % 60:02d}"
-                except:
+                except (ValueError, IndexError):
                     pass
 
             departures.append({
