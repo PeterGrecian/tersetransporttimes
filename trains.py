@@ -89,13 +89,32 @@ def parse_darwin_response(xml_data):
             if calling_points:
                 dest_index = -1
                 for i, point in enumerate(calling_points):
+                    # Try both namespaces for crs field
                     crs = point.find('lt8:crs', ns)
+                    if crs is None:
+                        crs = point.find('lt4:crs', ns)
+
+                    # Match by CRS code
                     if crs is not None and crs.text and crs.text.upper() == to_station.upper():
                         dest_index = i
                         st = point.find('lt8:st', ns)
                         if st is not None:
                             arrival_time = st.text
                         break
+
+                # If not found by CRS, try matching by station name
+                if dest_index < 0:
+                    dest_name = STATION_NAMES.get(to_station.lower(), to_station.upper())
+                    for i, point in enumerate(calling_points):
+                        location = point.find('lt8:locationName', ns)
+                        if location is None:
+                            location = point.find('lt4:locationName', ns)
+                        if location is not None and dest_name.lower() in location.text.lower():
+                            dest_index = i
+                            st = point.find('lt8:st', ns)
+                            if st is not None:
+                                arrival_time = st.text
+                            break
 
                 # If destination found, count stops up to (not including) it
                 # Otherwise fall back to counting all stops - 1
