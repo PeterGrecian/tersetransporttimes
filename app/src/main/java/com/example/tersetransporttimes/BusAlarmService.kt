@@ -20,6 +20,7 @@ class BusAlarmService : Service() {
 
     companion object {
         const val CHANNEL_ID = "bus_alarm_channel"
+        const val ALARM_CHANNEL_ID = "bus_alarm_ringing_channel"
         const val NOTIFICATION_ID = 1
         const val ACTION_STOP = "com.example.tersetransporttimes.STOP_ALARM"
 
@@ -107,7 +108,7 @@ class BusAlarmService : Service() {
                         // Check if bus has arrived (under 3 minutes)
                         if (seconds < ALARM_INTERVAL_SECONDS) {
                             // Bus is arriving, sound final alarm and stop
-                            playAlarm()
+                            playAlarm("Bus arriving in ${minutes} min")
                             delay(5000) // Let alarm play for 5 seconds
                             stopSelf()
                             return@launch
@@ -118,7 +119,7 @@ class BusAlarmService : Service() {
                         val currentThreshold = (seconds / ALARM_INTERVAL_SECONDS) * ALARM_INTERVAL_SECONDS
                         val timeSinceStart = System.currentTimeMillis() - startedAtTime
                         if (currentThreshold < lastAlarmThreshold && timeSinceStart > 15_000) {
-                            playAlarm()
+                            playAlarm("Bus arriving in $minutes min")
                             lastAlarmThreshold = currentThreshold
                         }
                     }
@@ -163,19 +164,23 @@ class BusAlarmService : Service() {
         }
     }
 
-    private fun playAlarm() {
+    private fun playAlarm(message: String = "Your bus is arriving!") {
         try {
             stopAlarm()
             val alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
                 ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
             currentRingtone = RingtoneManager.getRingtone(applicationContext, alarmUri)
             currentRingtone?.play()
+            showAlarmNotification(message)
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
 
     private fun createNotificationChannel() {
+        val notificationManager = getSystemService(NotificationManager::class.java)
+
+        // Low priority channel for normal armed state
         val channel = NotificationChannel(
             CHANNEL_ID,
             "Bus Alarm",
@@ -183,8 +188,19 @@ class BusAlarmService : Service() {
         ).apply {
             description = "Shows when bus alarm is active"
         }
-        val notificationManager = getSystemService(NotificationManager::class.java)
         notificationManager.createNotificationChannel(channel)
+
+        // High priority channel for when alarm is ringing
+        val alarmChannel = NotificationChannel(
+            ALARM_CHANNEL_ID,
+            "Bus Alarm Ringing",
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "Shows when bus is arriving"
+            enableVibration(true)
+            vibrationPattern = longArrayOf(0, 500, 200, 500)
+        }
+        notificationManager.createNotificationChannel(alarmChannel)
     }
 
     private fun createNotification(text: String): Notification {
@@ -212,6 +228,36 @@ class BusAlarmService : Service() {
 
     private fun updateNotification(text: String) {
         val notification = createNotification(text)
+        val notificationManager = getSystemService(NotificationManager::class.java)
+        notificationManager.notify(NOTIFICATION_ID, notification)
+    }
+
+    private fun showAlarmNotification(text: String) {
+        val stopIntent = Intent(this, BusAlarmService::class.java).apply {
+            action = ACTION_STOP
+        }
+        val stopPendingIntent = PendingIntent.getService(
+            this, 0, stopIntent, PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val openIntent = Intent(this, MainActivity::class.java)
+        val openPendingIntent = PendingIntent.getActivity(
+            this, 0, openIntent, PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(this, ALARM_CHANNEL_ID)
+            .setContentTitle("🚌 Bus Arriving!")
+            .setContentText(text)
+            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+            .setContentIntent(openPendingIntent)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", stopPendingIntent)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setVibrate(longArrayOf(0, 500, 200, 500))
+            .setAutoCancel(false)
+            .setOngoing(true)
+            .build()
+
         val notificationManager = getSystemService(NotificationManager::class.java)
         notificationManager.notify(NOTIFICATION_ID, notification)
     }

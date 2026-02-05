@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -245,6 +246,11 @@ const val ALARM_INTERVAL_SECONDS = 180 // 3 minutes
 fun MainScreen(locationMode: LocationMode?) {
     var selectedScreen by remember { mutableStateOf<Screen>(Screen.Buses) }
 
+    // Armed alarm state - hoisted to persist across tab navigation
+    var armedBusKey by rememberSaveable { mutableStateOf<String?>(null) }
+    var lastAlarmThreshold by rememberSaveable { mutableIntStateOf(Int.MAX_VALUE) }
+    var armedAtTime by rememberSaveable { mutableLongStateOf(0L) }
+
     Scaffold(
         containerColor = Color(0xFF1A1A1A),
         bottomBar = {
@@ -283,7 +289,15 @@ fun MainScreen(locationMode: LocationMode?) {
     ) { paddingValues ->
         Box(modifier = Modifier.padding(paddingValues)) {
             when (selectedScreen) {
-                is Screen.Buses -> BusTimesScreen(locationMode)
+                is Screen.Buses -> BusTimesScreen(
+                    locationMode = locationMode,
+                    armedBusKey = armedBusKey,
+                    onArmedBusKeyChange = { armedBusKey = it },
+                    lastAlarmThreshold = lastAlarmThreshold,
+                    onLastAlarmThresholdChange = { lastAlarmThreshold = it },
+                    armedAtTime = armedAtTime,
+                    onArmedAtTimeChange = { armedAtTime = it }
+                )
                 is Screen.Trains -> TrainTimesScreen()
             }
         }
@@ -291,7 +305,15 @@ fun MainScreen(locationMode: LocationMode?) {
 }
 
 @Composable
-fun BusTimesScreen(locationMode: LocationMode?) {
+fun BusTimesScreen(
+    locationMode: LocationMode?,
+    armedBusKey: String?,
+    onArmedBusKeyChange: (String?) -> Unit,
+    lastAlarmThreshold: Int,
+    onLastAlarmThresholdChange: (Int) -> Unit,
+    armedAtTime: Long,
+    onArmedAtTimeChange: (Long) -> Unit
+) {
     val context = LocalContext.current
     var busData by remember { mutableStateOf<BusData?>(null) }
     var isLoading by remember { mutableStateOf(true) }
@@ -301,13 +323,6 @@ fun BusTimesScreen(locationMode: LocationMode?) {
     var refreshTrigger by remember { mutableIntStateOf(0) }
     var lastRefreshDurationMs by remember { mutableLongStateOf(0L) }
     var showRefreshedMessage by remember { mutableStateOf(false) }
-
-    // Armed alarm state: "inbound-0", "inbound-1", "outbound-0", "outbound-1", or null
-    var armedBusKey by remember { mutableStateOf<String?>(null) }
-    // Track the last 3-minute threshold that triggered an alarm (e.g., 540, 360, 180, 0)
-    var lastAlarmThreshold by remember { mutableIntStateOf(Int.MAX_VALUE) }
-    // Track when alarm was armed to add grace period
-    var armedAtTime by remember { mutableLongStateOf(0L) }
 
     // Determine which stop to fetch based on location
     val stopParam = when (locationMode) {
@@ -361,8 +376,15 @@ fun BusTimesScreen(locationMode: LocationMode?) {
             val timeSinceArmed = System.currentTimeMillis() - armedAtTime
             if (currentThreshold < lastAlarmThreshold && timeSinceArmed > 15_000) {
                 playAlarmSound(context)
-                lastAlarmThreshold = currentThreshold
+                onLastAlarmThresholdChange(currentThreshold)
             }
+        } else {
+            // Armed bus no longer exists in the data - auto-disarm
+            onArmedBusKeyChange(null)
+            onLastAlarmThresholdChange(Int.MAX_VALUE)
+            stopAlarmSound()
+            BusAlarmService.stopAlarm()
+            context.stopService(Intent(context, BusAlarmService::class.java))
         }
     }
 
@@ -518,24 +540,24 @@ fun BusTimesScreen(locationMode: LocationMode?) {
                                             BusAlarmService.stopAlarm()
                                         } else if (armedBusKey == key) {
                                             // Armed but not ringing - disarm completely
-                                            armedBusKey = null
-                                            lastAlarmThreshold = Int.MAX_VALUE
+                                            onArmedBusKeyChange(null)
+                                            onLastAlarmThresholdChange(Int.MAX_VALUE)
                                             stopAlarmSound()
                                             BusAlarmService.stopAlarm()
                                             context.stopService(Intent(context, BusAlarmService::class.java))
                                         } else {
                                             // Not armed - arm this bus
-                                            armedBusKey = key
-                                            armedAtTime = System.currentTimeMillis()
+                                            onArmedBusKeyChange(key)
+                                            onArmedAtTimeChange(System.currentTimeMillis())
                                             // Calculate threshold, skipping immediate alarm if close to boundary
                                             val currentThreshold = (currentSeconds / ALARM_INTERVAL_SECONDS) * ALARM_INTERVAL_SECONDS
                                             val distanceToThreshold = currentSeconds - currentThreshold
-                                            lastAlarmThreshold = if (distanceToThreshold < 30) {
+                                            onLastAlarmThresholdChange(if (distanceToThreshold < 30) {
                                                 // Close to boundary, skip this threshold
                                                 maxOf(0, currentThreshold - ALARM_INTERVAL_SECONDS)
                                             } else {
                                                 currentThreshold
-                                            }
+                                            })
                                             stopAlarmSound()
 
                                             val parts = key.split("-")
@@ -570,24 +592,24 @@ fun BusTimesScreen(locationMode: LocationMode?) {
                                             BusAlarmService.stopAlarm()
                                         } else if (armedBusKey == key) {
                                             // Armed but not ringing - disarm completely
-                                            armedBusKey = null
-                                            lastAlarmThreshold = Int.MAX_VALUE
+                                            onArmedBusKeyChange(null)
+                                            onLastAlarmThresholdChange(Int.MAX_VALUE)
                                             stopAlarmSound()
                                             BusAlarmService.stopAlarm()
                                             context.stopService(Intent(context, BusAlarmService::class.java))
                                         } else {
                                             // Not armed - arm this bus
-                                            armedBusKey = key
-                                            armedAtTime = System.currentTimeMillis()
+                                            onArmedBusKeyChange(key)
+                                            onArmedAtTimeChange(System.currentTimeMillis())
                                             // Calculate threshold, skipping immediate alarm if close to boundary
                                             val currentThreshold = (currentSeconds / ALARM_INTERVAL_SECONDS) * ALARM_INTERVAL_SECONDS
                                             val distanceToThreshold = currentSeconds - currentThreshold
-                                            lastAlarmThreshold = if (distanceToThreshold < 30) {
+                                            onLastAlarmThresholdChange(if (distanceToThreshold < 30) {
                                                 // Close to boundary, skip this threshold
                                                 maxOf(0, currentThreshold - ALARM_INTERVAL_SECONDS)
                                             } else {
                                                 currentThreshold
-                                            }
+                                            })
                                             stopAlarmSound()
 
                                             val parts = key.split("-")
@@ -622,24 +644,24 @@ fun BusTimesScreen(locationMode: LocationMode?) {
                                             BusAlarmService.stopAlarm()
                                         } else if (armedBusKey == key) {
                                             // Armed but not ringing - disarm completely
-                                            armedBusKey = null
-                                            lastAlarmThreshold = Int.MAX_VALUE
+                                            onArmedBusKeyChange(null)
+                                            onLastAlarmThresholdChange(Int.MAX_VALUE)
                                             stopAlarmSound()
                                             BusAlarmService.stopAlarm()
                                             context.stopService(Intent(context, BusAlarmService::class.java))
                                         } else {
                                             // Not armed - arm this bus
-                                            armedBusKey = key
-                                            armedAtTime = System.currentTimeMillis()
+                                            onArmedBusKeyChange(key)
+                                            onArmedAtTimeChange(System.currentTimeMillis())
                                             // Calculate threshold, skipping immediate alarm if close to boundary
                                             val currentThreshold = (currentSeconds / ALARM_INTERVAL_SECONDS) * ALARM_INTERVAL_SECONDS
                                             val distanceToThreshold = currentSeconds - currentThreshold
-                                            lastAlarmThreshold = if (distanceToThreshold < 30) {
+                                            onLastAlarmThresholdChange(if (distanceToThreshold < 30) {
                                                 // Close to boundary, skip this threshold
                                                 maxOf(0, currentThreshold - ALARM_INTERVAL_SECONDS)
                                             } else {
                                                 currentThreshold
-                                            }
+                                            })
                                             stopAlarmSound()
 
                                             val parts = key.split("-")
@@ -674,24 +696,24 @@ fun BusTimesScreen(locationMode: LocationMode?) {
                                             BusAlarmService.stopAlarm()
                                         } else if (armedBusKey == key) {
                                             // Armed but not ringing - disarm completely
-                                            armedBusKey = null
-                                            lastAlarmThreshold = Int.MAX_VALUE
+                                            onArmedBusKeyChange(null)
+                                            onLastAlarmThresholdChange(Int.MAX_VALUE)
                                             stopAlarmSound()
                                             BusAlarmService.stopAlarm()
                                             context.stopService(Intent(context, BusAlarmService::class.java))
                                         } else {
                                             // Not armed - arm this bus
-                                            armedBusKey = key
-                                            armedAtTime = System.currentTimeMillis()
+                                            onArmedBusKeyChange(key)
+                                            onArmedAtTimeChange(System.currentTimeMillis())
                                             // Calculate threshold, skipping immediate alarm if close to boundary
                                             val currentThreshold = (currentSeconds / ALARM_INTERVAL_SECONDS) * ALARM_INTERVAL_SECONDS
                                             val distanceToThreshold = currentSeconds - currentThreshold
-                                            lastAlarmThreshold = if (distanceToThreshold < 30) {
+                                            onLastAlarmThresholdChange(if (distanceToThreshold < 30) {
                                                 // Close to boundary, skip this threshold
                                                 maxOf(0, currentThreshold - ALARM_INTERVAL_SECONDS)
                                             } else {
                                                 currentThreshold
-                                            }
+                                            })
                                             stopAlarmSound()
 
                                             val parts = key.split("-")
