@@ -24,6 +24,19 @@
 - [x] rename t3 bus to t3 and add a train to the logo
   - Fixed: App renamed from "T3 Bus" to "T3", launcher icon shows "T3" in block letters
 
+- [x] Train delay indicators
+  - Fixed: Delayed trains show delay minutes inline (e.g., "17:42+3")
+  - Departure time shown in orange when delayed
+
+- [x] UI polish
+  - Fixed: Train stop count now only counts up to destination (not beyond)
+  - Fixed: Refresh time display works on both bus and train pages
+
+- [x] Bus alarm improvements
+  - Fixed: Banner notifications show actual arrival time with vibration
+  - Fixed: Alarm state persists across tab navigation
+  - Fixed: Auto-disarm when armed bus disappears
+
 # NaPTAN IDs
 
 Parklands:
@@ -36,21 +49,8 @@ Surbiton Station:
 
 # TODO
 
-## Train delay indicators
-- [ ] Delayed trains should show as orange, cancelled as red flashing
-
-## Slack integration for disruption alerts
-- [ ] Notify Slack when trains are cancelled or significantly delayed
-- [ ] Monitor commute windows: outbound from 9am, return from 5pm
-- [ ] Consider threshold for "significant" delay (e.g. 5+ mins?) before alerting
-- [ ] Darwin API already returns `cancelled` and `delayMinutes` fields - ready to act on
-
 ## Bus-train integration
-- [ ] it should be possible to calculate from the bus API arrival time at Surbiton station and how long it takes me to get to the platform from the bus stop which trains I can catch.
+- [ ] Calculate from bus arrival time at Surbiton station + walk time which trains you can catch
 - [ ] t3.py (bus) and trains_darwin.py (trains) already run as separate Lambdas - could add a combined endpoint
 - [ ] Consider a single `/journey` endpoint that returns both and flags alternatives
-
-## UI polish
-- [ ] When changing to train page it does not say how long it took to refresh
-- [ ] The return journey from Waterloo is weird. Some have 11 stops! The departure time is ok, its not there and back is it? The tab should be called "Waterloo" not "Sur" - maybe "WAT".  
 
