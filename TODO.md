@@ -1,30 +1,40 @@
 # Completed
 
+- [x] Auto and manual location controls on buses (Auto, Home, SUR, WAT buttons)
+- [x] Distance readout showing distances from Home, Surbiton, and Waterloo in miles with 1 decimal place
 
-# NaPTAN IDs
+# Journey Logic
 
-Parklands:
-- 490010781S = inbound (towards Kingston Hospital via Surbiton)
-- 490010781N = outbound (towards Hook via Tolworth)
+## Locations
+- **Home** (Parklands): 51.39436, -0.29321 (400m radius)
+- **Surbiton Station**: 51.39374, -0.30411 (400m radius)
+- **Waterloo Station**: 51.5031, -0.1132
 
-Surbiton Station:
-- 490015165A = Stop NC, inbound (towards Kingston)
-- 490015165B = Stop NK, outbound (towards Hook)
+## Journey Modes
 
-claude - please document these somewhere else and remove from this file
+### Morning Commute (Home → Work)
+1. **When nearest Home**: Bus to Surbiton is most relevant
+   - Show outbound buses (towards Hook) from Parklands
+2. **When approaching Surbiton from Home**: Train to Waterloo is most relevant
+   - Show trains from Surbiton to Waterloo
+3. **When at/near Waterloo**: Journey complete
 
-Journeys
-There are 3 locations, home, surbiton and waterloo, and 2 directions home to work and work to home
-with surbiton as an intermediate.  
+### Evening Commute (Work → Home)
+1. **When at/near Waterloo**: Train to Surbiton is most relevant
+   - Show trains from Waterloo to Surbiton
+2. **When approaching Surbiton from Waterloo**: Bus to Home is most relevant
+   - Show inbound buses (towards Kingston) from Surbiton Station
+3. **When nearest Home**: Journey complete
 
-The auto and manual location buttons on the train part are good, and these would be good on the bus too.
-when the user is nearest home the bus to surbiton is most relevent
-when approaching surbiton from home the train to waterloo is most relevent
-- claude - please fill in the remainder of these rules as a record of the logic
+### At Surbiton (Ambiguous)
+- Could be either direction - show both bus and train options
+- User can use manual location override to specify direction
 
-# TODO now
-1) have auto, and manual controls on busses like trains
-2) have a readout of distances from home, surbiton, waterloo on the display, in miles with 1 decimal place, not promenant
+## Notes
+- NaPTAN bus stop IDs documented in [NAPTAN_IDS.md](NAPTAN_IDS.md)
+- Auto and manual location controls help disambiguate when at intermediate locations
+
+# TODO
 
 ## Bus-train integration - this is for much later when all the bugs are shaken out
 - [ ] Calculate from bus arrival time at Surbiton station + walk time which trains you can catch
