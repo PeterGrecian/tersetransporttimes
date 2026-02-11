@@ -39,6 +39,16 @@ cd /home/tot/tersetransporttimes
 2. Enable USB Debugging in Developer Options
 3. Connect via USB, tap "Allow" when prompted to authorize computer
 
+### ⚠️ Connection Issues from WSL2?
+See **[USB_DEBUGGING.md](USB_DEBUGGING.md)** for detailed troubleshooting.
+
+**Quick fix:** Revoke USB authorizations on phone, then from WSL run:
+```bash
+/mnt/c/Users/tot/AppData/Local/Android/Sdk/platform-tools/adb.exe kill-server
+/mnt/c/Users/tot/AppData/Local/Android/Sdk/platform-tools/adb.exe start-server
+/mnt/c/Users/tot/AppData/Local/Android/Sdk/platform-tools/adb.exe devices
+```
+
 ## Debugging & Logs
 
 ### Check Lambda Logs

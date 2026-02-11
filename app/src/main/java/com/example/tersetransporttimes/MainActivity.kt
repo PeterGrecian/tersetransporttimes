@@ -251,10 +251,13 @@ class MainActivity : ComponentActivity() {
                 userLat = location.latitude
                 userLon = location.longitude
                 locationMode = determineLocationMode(location.latitude, location.longitude)
+                android.util.Log.d("MainActivity", "GPS location obtained: (${location.latitude}, ${location.longitude})")
             } else {
+                android.util.Log.w("MainActivity", "GPS location is null")
                 locationMode = LocationMode.ELSEWHERE
             }
-        }.addOnFailureListener {
+        }.addOnFailureListener { exception ->
+            android.util.Log.e("MainActivity", "Failed to get GPS location", exception)
             locationMode = LocationMode.ELSEWHERE
         }
     }
@@ -264,14 +267,34 @@ class MainActivity : ComponentActivity() {
 const val ALARM_INTERVAL_SECONDS = 180 // 3 minutes
 
 @Composable
-fun DistanceReadout(userLat: Double?, userLon: Double?) {
-    if (userLat != null && userLon != null) {
-        val distToHome = metersToMiles(distanceTo(userLat, userLon, PARKLANDS_LAT, PARKLANDS_LON))
-        val distToSurbiton = metersToMiles(distanceTo(userLat, userLon, SURBITON_LAT, SURBITON_LON))
-        val distToWaterloo = metersToMiles(distanceTo(userLat, userLon, WATERLOO_LAT, WATERLOO_LON))
+fun DistanceReadout(userLat: Double?, userLon: Double?, debugLocation: DebugLocation = DebugLocation.AUTO) {
+    // Use debug location if set, otherwise use GPS
+    val (effectiveLat, effectiveLon) = when (debugLocation) {
+        DebugLocation.HOME -> Pair(PARKLANDS_LAT, PARKLANDS_LON)
+        DebugLocation.SURBITON -> Pair(SURBITON_LAT, SURBITON_LON)
+        DebugLocation.WATERLOO -> Pair(WATERLOO_LAT, WATERLOO_LON)
+        DebugLocation.AUTO -> Pair(userLat, userLon)
+    }
+
+    if (effectiveLat != null && effectiveLon != null) {
+        val distToHome = metersToMiles(distanceTo(effectiveLat, effectiveLon, PARKLANDS_LAT, PARKLANDS_LON))
+        val distToSurbiton = metersToMiles(distanceTo(effectiveLat, effectiveLon, SURBITON_LAT, SURBITON_LON))
+        val distToWaterloo = metersToMiles(distanceTo(effectiveLat, effectiveLon, WATERLOO_LAT, WATERLOO_LON))
+
+        android.util.Log.d("DistanceReadout", "Coords: ($effectiveLat, $effectiveLon) Mode: $debugLocation")
+        android.util.Log.d("DistanceReadout", "Distances - Home: $distToHome, SUR: $distToSurbiton, WAT: $distToWaterloo")
 
         Text(
-            text = "Home: %.1f mi  |  SUR: %.1f mi  |  WAT: %.1f mi".format(distToHome, distToSurbiton, distToWaterloo),
+            text = "Home: %.3f mi  |  SUR: %.3f mi  |  WAT: %.3f mi".format(distToHome, distToSurbiton, distToWaterloo),
+            color = Color(0xFF666666),
+            fontSize = 11.sp,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+    } else {
+        // Show when location is not available
+        android.util.Log.d("DistanceReadout", "No location available - GPS: ($userLat, $userLon), Mode: $debugLocation")
+        Text(
+            text = "Location unavailable",
             color = Color(0xFF666666),
             fontSize = 11.sp,
             modifier = Modifier.padding(top = 4.dp)
@@ -326,6 +349,103 @@ fun MainScreen(locationMode: LocationMode?, userLat: Double?, userLon: Double?) 
     var armedBusKey by rememberSaveable { mutableStateOf<String?>(null) }
     var lastAlarmThreshold by rememberSaveable { mutableIntStateOf(Int.MAX_VALUE) }
     var armedAtTime by rememberSaveable { mutableLongStateOf(0L) }
+
+    // Train data state - hoisted so it fetches in background
+    var trainData by remember { mutableStateOf<TrainData?>(null) }
+    var trainIsLoading by remember { mutableStateOf(true) }
+    var trainError by remember { mutableStateOf<String?>(null) }
+    var trainCountdown by remember { mutableIntStateOf(30) }
+    var trainLastRefreshDurationMs by remember { mutableLongStateOf(0L) }
+    var trainShowRefreshedMessage by remember { mutableStateOf(false) }
+    var trainDebugLocation by remember { mutableStateOf(DebugLocation.AUTO) }
+    var trainDataCache by remember { mutableStateOf<Map<DebugLocation, CachedTrainData>>(emptyMap()) }
+    var trainDataAge by remember { mutableStateOf<Long?>(null) }
+    var trainLastFetchTime by remember { mutableStateOf(0L) }
+
+    // Helper to get effective train location
+    fun getEffectiveTrainLocation(): Pair<Double?, Double?> {
+        return when (trainDebugLocation) {
+            DebugLocation.HOME -> Pair(PARKLANDS_LAT, PARKLANDS_LON)
+            DebugLocation.SURBITON -> Pair(SURBITON_LAT, SURBITON_LON)
+            DebugLocation.WATERLOO -> Pair(WATERLOO_LAT, WATERLOO_LON)
+            DebugLocation.AUTO -> Pair(userLat, userLon)
+        }
+    }
+
+    // Get cached train data for current location
+    fun getCachedTrainData(): CachedTrainData? = trainDataCache[trainDebugLocation]
+
+    // Check if cached train data is fresh (< 30 seconds)
+    fun isTrainDataFresh(): Boolean {
+        val cached = getCachedTrainData()
+        if (cached == null) return false
+        val age = System.currentTimeMillis() - cached.timestamp
+        return age < 30_000
+    }
+
+    // Background train data fetching - runs regardless of selected tab
+    LaunchedEffect(trainCountdown, trainDebugLocation) {
+        if (trainCountdown > 0) {
+            delay(1000)
+            trainCountdown--
+            if (trainCountdown == 25) {
+                trainShowRefreshedMessage = false
+            }
+        } else {
+            trainIsLoading = true
+            trainError = null
+            val startTime = System.currentTimeMillis()
+            try {
+                delay(500) // Rate limit protection
+                val (lat, lon) = getEffectiveTrainLocation()
+                val data = fetchTrainTimes(lat, lon)
+                val now = System.currentTimeMillis()
+                trainData = data
+                trainLastFetchTime = now
+                trainLastRefreshDurationMs = now - startTime
+                trainDataAge = 0L
+                // Cache the data for this location
+                trainDataCache = trainDataCache + (trainDebugLocation to CachedTrainData(data, now, trainDebugLocation))
+                trainIsLoading = false
+                trainShowRefreshedMessage = true
+                trainCountdown = 30
+            } catch (e: Exception) {
+                // Try to use cached data if available
+                val cached = getCachedTrainData()
+                if (cached != null) {
+                    val age = System.currentTimeMillis() - cached.timestamp
+                    trainData = cached.data
+                    trainDataAge = age
+                    trainError = null // Clear error since we have cached data
+                } else {
+                    trainError = e.message ?: "No connection"
+                }
+                trainIsLoading = false
+                trainCountdown = 10
+            }
+        }
+    }
+
+    // Initial train data load
+    LaunchedEffect(Unit) {
+        try {
+            delay(500)
+            val (lat, lon) = getEffectiveTrainLocation()
+            val data = fetchTrainTimes(lat, lon)
+            val now = System.currentTimeMillis()
+            trainData = data
+            trainLastFetchTime = now
+            trainDataAge = 0L
+            // Cache the data
+            trainDataCache = trainDataCache + (trainDebugLocation to CachedTrainData(data, now, trainDebugLocation))
+            trainIsLoading = false
+            trainCountdown = 30
+        } catch (e: Exception) {
+            trainError = e.message ?: "No connection"
+            trainIsLoading = false
+            trainCountdown = 10
+        }
+    }
 
     Scaffold(
         containerColor = Color(0xFF1A1A1A),
@@ -382,7 +502,40 @@ fun MainScreen(locationMode: LocationMode?, userLat: Double?, userLon: Double?) 
                     armedAtTime = armedAtTime,
                     onArmedAtTimeChange = { armedAtTime = it }
                 )
-                is Screen.Trains -> TrainTimesScreen(userLat, userLon)
+                is Screen.Trains -> TrainTimesScreen(
+                    gpsLat = userLat,
+                    gpsLon = userLon,
+                    trainData = trainData,
+                    isLoading = trainIsLoading,
+                    error = trainError,
+                    countdown = trainCountdown,
+                    lastRefreshDurationMs = trainLastRefreshDurationMs,
+                    showRefreshedMessage = trainShowRefreshedMessage,
+                    debugLocation = trainDebugLocation,
+                    dataAge = trainDataAge,
+                    onDebugLocationChange = { newLoc ->
+                        trainDebugLocation = newLoc
+
+                        // Check if we have fresh cached data for this location
+                        val cached = trainDataCache[newLoc]
+                        if (cached != null) {
+                            val age = System.currentTimeMillis() - cached.timestamp
+                            trainDataAge = age
+
+                            if (age < 30_000) {
+                                // Data is fresh, use it immediately
+                                trainData = cached.data
+                                // Don't trigger refresh yet, let auto-refresh handle it
+                            } else {
+                                // Data is stale, trigger immediate refresh
+                                trainCountdown = 0
+                            }
+                        } else {
+                            // No cached data, trigger immediate refresh
+                            trainCountdown = 0
+                        }
+                    }
+                )
             }
         }
     }
@@ -676,6 +829,7 @@ fun BusTimesScreen(
                                 if (age < 30_000) {
                                     // Data is fresh, use it immediately
                                     busData = adjustBusDataForAge(cached.data, age)
+                                    showRefreshedMessage = false  // Clear message to show we used cache
                                     // Don't trigger refresh yet, let auto-refresh handle it
                                 } else {
                                     // Data is stale, trigger immediate refresh
@@ -705,7 +859,7 @@ fun BusTimesScreen(
             }
 
             // Distance readout
-            DistanceReadout(userLat, userLon)
+            DistanceReadout(userLat, userLon, debugLocation)
 
             // Refresh countdown or status
             if (error == null || busData != null) {
@@ -1104,69 +1258,20 @@ private suspend fun fetchBusTimes(stop: String = "parklands"): BusData = withCon
 
 @SuppressLint("MissingPermission")
 @Composable
-fun TrainTimesScreen(gpsLat: Double?, gpsLon: Double?) {
-    val context = LocalContext.current
-    var trainData by remember { mutableStateOf<TrainData?>(null) }
-    var isLoading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var countdown by remember { mutableIntStateOf(30) }
-    var lastRefreshDurationMs by remember { mutableLongStateOf(0L) }
-    var showRefreshedMessage by remember { mutableStateOf(false) }
-    var debugLocation by remember { mutableStateOf(DebugLocation.AUTO) }
-
-    // Helper to get effective location (debug override or actual GPS)
-    fun getEffectiveLocation(): Pair<Double?, Double?> {
-        return when (debugLocation) {
-            DebugLocation.HOME -> Pair(PARKLANDS_LAT, PARKLANDS_LON)
-            DebugLocation.SURBITON -> Pair(SURBITON_LAT, SURBITON_LON)
-            DebugLocation.WATERLOO -> Pair(WATERLOO_LAT, WATERLOO_LON)
-            DebugLocation.AUTO -> Pair(gpsLat, gpsLon)
-        }
-    }
-
-    // Auto-refresh countdown
-    LaunchedEffect(countdown, debugLocation) {
-        if (countdown > 0) {
-            delay(1000)
-            countdown--
-            // Hide "refreshed in" message after 5 seconds
-            if (countdown == 25) {
-                showRefreshedMessage = false
-            }
-        } else {
-            isLoading = true
-            error = null
-            val startTime = System.currentTimeMillis()
-            try {
-                delay(500) // Rate limit protection
-                val (lat, lon) = getEffectiveLocation()
-                trainData = fetchTrainTimes(lat, lon)
-                lastRefreshDurationMs = System.currentTimeMillis() - startTime
-                isLoading = false
-                showRefreshedMessage = true
-                countdown = 30
-            } catch (e: Exception) {
-                error = e.message ?: "No connection"
-                isLoading = false
-                countdown = 10
-            }
-        }
-    }
-
-    // Initial load
-    LaunchedEffect(Unit) {
-        try {
-            delay(500)
-            val (lat, lon) = getEffectiveLocation()
-            trainData = fetchTrainTimes(lat, lon)
-            isLoading = false
-            countdown = 30
-        } catch (e: Exception) {
-            error = e.message ?: "No connection"
-            isLoading = false
-            countdown = 10
-        }
-    }
+fun TrainTimesScreen(
+    gpsLat: Double?,
+    gpsLon: Double?,
+    trainData: TrainData?,
+    isLoading: Boolean,
+    error: String?,
+    countdown: Int,
+    lastRefreshDurationMs: Long,
+    showRefreshedMessage: Boolean,
+    debugLocation: DebugLocation,
+    dataAge: Long?,
+    onDebugLocationChange: (DebugLocation) -> Unit
+) {
+    // All state is now managed by parent (MainScreen) and runs in background
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -1196,8 +1301,7 @@ fun TrainTimesScreen(gpsLat: Double?, gpsLon: Double?) {
                 listOf(DebugLocation.AUTO, DebugLocation.SURBITON, DebugLocation.WATERLOO).forEach { loc ->
                     Button(
                         onClick = {
-                            debugLocation = loc
-                            countdown = 0  // Trigger immediate refresh
+                            onDebugLocationChange(loc)  // Trigger immediate refresh via parent
                         },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = if (debugLocation == loc) Color(0xFF4A9EFF) else Color(0xFF2A2A2A)
@@ -1218,19 +1322,40 @@ fun TrainTimesScreen(gpsLat: Double?, gpsLon: Double?) {
             }
 
             // Distance readout
-            DistanceReadout(gpsLat, gpsLon)
+            DistanceReadout(gpsLat, gpsLon, debugLocation)
 
             if (error == null || trainData != null) {
-                Text(
-                    text = if (showRefreshedMessage) {
-                        "refreshed in ${formatRefreshDuration(lastRefreshDurationMs)}"
-                    } else {
-                        "refresh in ${countdown}s"
-                    },
-                    color = Color(0xFF888888),
-                    fontSize = 14.sp,
-                    modifier = Modifier.padding(top = 8.dp, bottom = 24.dp)
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = if (showRefreshedMessage) {
+                            "refreshed in ${formatRefreshDuration(lastRefreshDurationMs)}"
+                        } else {
+                            "refresh in ${countdown}s"
+                        },
+                        color = Color(0xFF888888),
+                        fontSize = 14.sp,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+
+                    // Show staleness indicator if data is old
+                    dataAge?.let { age ->
+                        if (age > 5000) { // Only show if older than 5 seconds
+                            val ageMinutes = (age / 60000).toInt()
+                            val ageSeconds = ((age % 60000) / 1000).toInt()
+                            Text(
+                                text = if (ageMinutes > 0) {
+                                    "Data from ${ageMinutes}m ${ageSeconds}s ago"
+                                } else {
+                                    "Data from ${ageSeconds}s ago"
+                                },
+                                color = Color(0xFFFF9500), // Orange for stale data
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(24.dp))
             }
 
             if (isLoading && trainData == null) {

@@ -36,6 +36,10 @@
 
 # TODO
 
+## Performance optimizations
+- [ ] **Bus API efficiency**: Currently t3.py always fetches BOTH inbound and outbound bus times (2 TfL API calls), even when the app only displays one direction based on location. Could add a `direction` query parameter to only fetch what's needed and reduce API calls by 50%.
+- [ ] **Pre-fetch optimization**: Both bus and train screens now cache data per location (Auto/Home/SUR/WAT), but first visit to each location requires a network fetch. Could pre-fetch other common locations in background after initial load (e.g., after fetching SUR trains, pre-fetch WAT trains). Requires proper coroutine scoping to avoid blocking main thread.
+
 ## Bus-train integration - this is for much later when all the bugs are shaken out
 - [ ] Calculate from bus arrival time at Surbiton station + walk time which trains you can catch
 - [ ] t3.py (bus) and trains_darwin.py (trains) already run as separate Lambdas - could add a combined endpoint
