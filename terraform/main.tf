@@ -2,14 +2,8 @@ provider "aws" {
   region = var.aws_region
 }
 
-# Fetch Darwin API key from AWS Secrets Manager
-data "aws_secretsmanager_secret" "darwin_api_key" {
-  name = "darwin-api-key"
-}
-
-data "aws_secretsmanager_secret_version" "darwin_api_key" {
-  secret_id = data.aws_secretsmanager_secret.darwin_api_key.id
-}
+# Darwin API key now fetched from Parameter Store by Lambda code
+# No Terraform data source needed - Lambda uses boto3 ssm client
 
 # IAM role for Lambda
 resource "aws_iam_role" "lambda_role" {
@@ -35,9 +29,9 @@ resource "aws_iam_role_policy_attachment" "lambda_basic" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-# IAM policy to allow Lambda to read Darwin API key from Secrets Manager
-resource "aws_iam_role_policy" "lambda_secrets" {
-  name = "lambda_secrets_access"
+# IAM policy to allow Lambda to read from Parameter Store (FREE!)
+resource "aws_iam_role_policy" "lambda_parameter_store" {
+  name = "lambda_parameter_store_access"
   role = aws_iam_role.lambda_role.id
 
   policy = jsonencode({
@@ -46,9 +40,20 @@ resource "aws_iam_role_policy" "lambda_secrets" {
       {
         Effect = "Allow"
         Action = [
-          "secretsmanager:GetSecretValue"
+          "ssm:GetParameter",
+          "ssm:GetParameters"
         ]
-        Resource = data.aws_secretsmanager_secret.darwin_api_key.arn
+        Resource = "arn:aws:ssm:${var.aws_region}:*:parameter/berrylands/*"
+      },
+      {
+        Effect = "Allow"
+        Action = "kms:Decrypt"
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "kms:ViaService" = "ssm.${var.aws_region}.amazonaws.com"
+          }
+        }
       }
     ]
   })
@@ -141,11 +146,7 @@ resource "aws_lambda_function" "trains" {
   timeout          = 10
   memory_size      = 128
 
-  environment {
-    variables = {
-      DARWIN_API_KEY = data.aws_secretsmanager_secret_version.darwin_api_key.secret_string
-    }
-  }
+  # No environment variables needed - Lambda fetches Darwin API key from Parameter Store
 }
 
 # Lambda integration for trains

@@ -11,8 +11,40 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
-
 DARWIN_ENDPOINT = "https://lite.realtime.nationalrail.co.uk/OpenLDBWS/ldb12.asmx"
+DARWIN_PARAMETER_NAME = "/berrylands/darwin-api-key"
+REGION = "eu-west-1"
+
+# Cache API key (Lambda cold start only)
+_cached_api_key = None
+
+
+def get_darwin_api_key():
+    """Get Darwin API key from Parameter Store (FREE!)."""
+    global _cached_api_key
+
+    if _cached_api_key:
+        return _cached_api_key
+
+    try:
+        import boto3
+        client = boto3.client('ssm', region_name=REGION)
+        response = client.get_parameter(
+            Name=DARWIN_PARAMETER_NAME,
+            WithDecryption=True
+        )
+        _cached_api_key = response['Parameter']['Value']
+        print(f"Darwin API key loaded from Parameter Store (FREE!)")
+        return _cached_api_key
+    except Exception as e:
+        print(f"Error fetching Darwin API key from Parameter Store: {e}")
+        # Fallback to environment variable for local testing
+        import os
+        env_key = os.environ.get('DARWIN_API_KEY')
+        if env_key:
+            print("Using DARWIN_API_KEY from environment variable")
+            return env_key
+        return None
 
 
 def soap_request(api_key, from_station, to_station, num_services=6):
@@ -51,7 +83,7 @@ def soap_request(api_key, from_station, to_station, num_services=6):
         return response.read().decode('utf-8')
 
 
-def parse_darwin_response(xml_data, to_station):
+def parse_darwin_response(xml_data):
     """Parse Darwin SOAP XML response (ldb12 / 2021-11-01)."""
     # Response uses multiple versioned namespaces
     ns = {
@@ -81,47 +113,15 @@ def parse_darwin_response(xml_data, to_station):
 
             # Get subsequent calling points for stops and arrival time
             calling_points = service.findall('.//lt8:subsequentCallingPoints/lt8:callingPointList/lt8:callingPoint', ns)
-            stops = 0
+            stops = len(calling_points) - 1 if calling_points else 0
             arrival_time = ''
 
-            # Find the destination station in calling points and count only stops UP TO it
-            # (trains may continue past the destination)
+            # Get destination arrival time (last calling point)
             if calling_points:
-                dest_index = -1
-                for i, point in enumerate(calling_points):
-                    # Try both namespaces for crs field
-                    crs = point.find('lt8:crs', ns)
-                    if crs is None:
-                        crs = point.find('lt4:crs', ns)
-
-                    # Match by CRS code
-                    if crs is not None and crs.text and crs.text.upper() == to_station.upper():
-                        dest_index = i
-                        st = point.find('lt8:st', ns)
-                        if st is not None:
-                            arrival_time = st.text
-                        break
-
-                # If not found by CRS, try matching by station name
-                if dest_index < 0:
-                    dest_name = STATION_NAMES.get(to_station.lower(), to_station.upper())
-                    for i, point in enumerate(calling_points):
-                        location = point.find('lt8:locationName', ns)
-                        if location is None:
-                            location = point.find('lt4:locationName', ns)
-                        if location is not None and dest_name.lower() in location.text.lower():
-                            dest_index = i
-                            st = point.find('lt8:st', ns)
-                            if st is not None:
-                                arrival_time = st.text
-                            break
-
-                # If destination found, count stops up to (not including) it
-                # Otherwise fall back to counting all stops - 1
-                if dest_index >= 0:
-                    stops = dest_index  # stops before destination
-                else:
-                    stops = len(calling_points) - 1
+                last_point = calling_points[-1]
+                st = last_point.find('lt8:st', ns)
+                if st is not None:
+                    arrival_time = st.text
 
             # Calculate journey minutes
             journey_mins = 0
@@ -193,7 +193,7 @@ def fetch_departures(origin="sur", destination="wat", api_key=None):
         print(f"Fetching Darwin data: {origin_upper} to {destination_upper}")
         xml_response = soap_request(api_key, origin_upper, destination_upper)
         print("Got Darwin response, parsing...")
-        departures = parse_darwin_response(xml_response, destination_upper)
+        departures = parse_darwin_response(xml_response)
         print(f"Parsed {len(departures)} departures")
         return departures, None
     except Exception as e:
@@ -219,16 +219,14 @@ def format_json(departures, origin, destination):
 
 def lambda_handler(event, context):
     """AWS Lambda entry point."""
-    import os
-
     cors_headers = {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Headers': 'Content-Type,Accept',
         'Access-Control-Allow-Methods': 'GET,OPTIONS'
     }
 
-    # Get Darwin API key from environment
-    api_key = os.environ.get('DARWIN_API_KEY')
+    # Get Darwin API key from Parameter Store (FREE!)
+    api_key = get_darwin_api_key()
     if not api_key:
         return {
             'statusCode': 500,
@@ -259,12 +257,12 @@ def lambda_handler(event, context):
 
 if __name__ == '__main__':
     import sys
-    import os
 
-    # For local testing - set DARWIN_API_KEY environment variable
-    api_key = os.environ.get('DARWIN_API_KEY')
+    # For local testing - tries Parameter Store first, then environment variable
+    api_key = get_darwin_api_key()
     if not api_key:
-        print("Error: Set DARWIN_API_KEY environment variable")
+        print("Error: Darwin API key not found")
+        print("Set DARWIN_API_KEY environment variable or ensure Parameter Store is configured")
         print("Get your key from: https://realtime.nationalrail.co.uk/OpenLDBWSRegistration/")
         sys.exit(1)
 
