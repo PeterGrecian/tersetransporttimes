@@ -11,8 +11,40 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
-
 DARWIN_ENDPOINT = "https://lite.realtime.nationalrail.co.uk/OpenLDBWS/ldb12.asmx"
+DARWIN_PARAMETER_NAME = "/berrylands/darwin-api-key"
+REGION = "eu-west-1"
+
+# Cache API key (Lambda cold start only)
+_cached_api_key = None
+
+
+def get_darwin_api_key():
+    """Get Darwin API key from Parameter Store (FREE!)."""
+    global _cached_api_key
+
+    if _cached_api_key:
+        return _cached_api_key
+
+    try:
+        import boto3
+        client = boto3.client('ssm', region_name=REGION)
+        response = client.get_parameter(
+            Name=DARWIN_PARAMETER_NAME,
+            WithDecryption=True
+        )
+        _cached_api_key = response['Parameter']['Value']
+        print(f"Darwin API key loaded from Parameter Store (FREE!)")
+        return _cached_api_key
+    except Exception as e:
+        print(f"Error fetching Darwin API key from Parameter Store: {e}")
+        # Fallback to environment variable for local testing
+        import os
+        env_key = os.environ.get('DARWIN_API_KEY')
+        if env_key:
+            print("Using DARWIN_API_KEY from environment variable")
+            return env_key
+        return None
 
 
 def soap_request(api_key, from_station, to_station, num_services=6):
@@ -187,16 +219,14 @@ def format_json(departures, origin, destination):
 
 def lambda_handler(event, context):
     """AWS Lambda entry point."""
-    import os
-
     cors_headers = {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Headers': 'Content-Type,Accept',
         'Access-Control-Allow-Methods': 'GET,OPTIONS'
     }
 
-    # Get Darwin API key from environment
-    api_key = os.environ.get('DARWIN_API_KEY')
+    # Get Darwin API key from Parameter Store (FREE!)
+    api_key = get_darwin_api_key()
     if not api_key:
         return {
             'statusCode': 500,
@@ -227,12 +257,12 @@ def lambda_handler(event, context):
 
 if __name__ == '__main__':
     import sys
-    import os
 
-    # For local testing - set DARWIN_API_KEY environment variable
-    api_key = os.environ.get('DARWIN_API_KEY')
+    # For local testing - tries Parameter Store first, then environment variable
+    api_key = get_darwin_api_key()
     if not api_key:
-        print("Error: Set DARWIN_API_KEY environment variable")
+        print("Error: Darwin API key not found")
+        print("Set DARWIN_API_KEY environment variable or ensure Parameter Store is configured")
         print("Get your key from: https://realtime.nationalrail.co.uk/OpenLDBWSRegistration/")
         sys.exit(1)
 
