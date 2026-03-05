@@ -13,21 +13,19 @@ from datetime import datetime, timezone
 TFL_API_BASE = "https://api.tfl.gov.uk"
 ROUTE = "K2"
 
-# Stop configurations: naptan_ids for both directions
+# Stop configurations: single direction per location for simplified commute
+# Morning: Parklands inbound → Surbiton
+# Evening: Surbiton outbound → Home (Hook direction)
 STOPS = {
     "parklands": {
-        "inbound_naptan": "490010781S",   # Parklands towards Kingston
-        "outbound_naptan": "490010781N",  # Parklands towards Hook
+        "naptan_id": "490010781S",   # Parklands inbound (towards Kingston/Surbiton)
         "name": "Parklands",
-        "inbound_dest": "Kingston",
-        "outbound_dest": "Hook"
+        "destination": "Surbiton"
     },
     "surbiton": {
-        "inbound_naptan": "490015165A",   # Claremont Rd Stop NC - towards Kingston
-        "outbound_naptan": "490015165B",  # Stop NK - towards Hook
+        "naptan_id": "490015165B",   # Surbiton Stop NK outbound (towards Hook/Home)
         "name": "Surbiton Station",
-        "inbound_dest": "Kingston",
-        "outbound_dest": "Hook"
+        "destination": "Home"
     }
 }
 
@@ -47,53 +45,32 @@ def fetch_arrivals_from_naptan(naptan_id, api_key=None):
 def fetch_arrivals_for_stop(stop_key, api_key=None):
     """
     Fetch bus arrivals for a specific stop from TfL API.
-    Queries both direction stops and returns combined results.
+    Simplified to single direction per location.
     """
     stop_config = STOPS.get(stop_key, STOPS["parklands"])
 
-    inbound_seconds = []
-    outbound_seconds = []
-    errors = []
+    seconds = []
 
-    # Fetch inbound arrivals
+    # Fetch arrivals for the configured stop
     try:
-        data = fetch_arrivals_from_naptan(stop_config["inbound_naptan"], api_key)
+        data = fetch_arrivals_from_naptan(stop_config["naptan_id"], api_key)
         for arrival in data:
             if arrival.get('lineName') == ROUTE:
-                inbound_seconds.append(arrival.get('timeToStation', 0))
+                seconds.append(arrival.get('timeToStation', 0))
     except Exception as e:
-        errors.append(f"inbound: {e}")
+        return None, f"Failed to fetch arrivals: {e}"
 
-    # Fetch outbound arrivals
-    try:
-        data = fetch_arrivals_from_naptan(stop_config["outbound_naptan"], api_key)
-        for arrival in data:
-            if arrival.get('lineName') == ROUTE:
-                outbound_seconds.append(arrival.get('timeToStation', 0))
-    except Exception as e:
-        errors.append(f"outbound: {e}")
+    if not seconds:
+        return None, "No K2 buses found"
 
-    if errors and not inbound_seconds and not outbound_seconds:
-        return None, "; ".join(errors)
-
-    # Sort by time
-    inbound_seconds.sort()
-    outbound_seconds.sort()
-
-    # Limit to first 2 of each
-    inbound_seconds = inbound_seconds[:2]
-    outbound_seconds = outbound_seconds[:2]
+    # Sort by time and limit to first 3
+    seconds.sort()
+    seconds = seconds[:3]
 
     return {
         "stop": stop_config["name"],
-        "inbound": {
-            "seconds": inbound_seconds,
-            "destination": stop_config["inbound_dest"]
-        } if inbound_seconds else None,
-        "outbound": {
-            "seconds": outbound_seconds,
-            "destination": stop_config["outbound_dest"]
-        } if outbound_seconds else None
+        "destination": stop_config["destination"],
+        "seconds": seconds
     }, None
 
 
