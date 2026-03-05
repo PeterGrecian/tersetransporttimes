@@ -136,6 +136,63 @@ fun metersToMiles(meters: Float): Float {
     return meters / 1609.34f
 }
 
+// Calculate bearing from point1 to point2 in degrees (0-360)
+fun calculateBearing(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Float {
+    val dLon = lon2 - lon1
+    val y = Math.sin(Math.toRadians(dLon)) * Math.cos(Math.toRadians(lat2))
+    val x = Math.cos(Math.toRadians(lat1)) * Math.sin(Math.toRadians(lat2)) -
+            Math.sin(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) * Math.cos(Math.toRadians(dLon))
+    val bearing = Math.toDegrees(Math.atan2(y, x)).toFloat()
+    return (bearing + 360) % 360
+}
+
+// Calculate perpendicular distance from point to line segment
+fun distanceToLineSegment(lat: Double, lon: Double,
+                          lat1: Double, lon1: Double,
+                          lat2: Double, lon2: Double): Float {
+    // Convert to meters for calculation
+    val results = FloatArray(1)
+
+    // Distance to start point
+    Location.distanceBetween(lat, lon, lat1, lon1, results)
+    var minDistance = results[0]
+
+    // Distance to end point
+    Location.distanceBetween(lat, lon, lat2, lon2, results)
+    minDistance = minOf(minDistance, results[0])
+
+    // Distance to line (using simple projection for lat/lon)
+    // This is a simplified calculation - good enough for short distances
+    val dx = lon2 - lon1
+    val dy = lat2 - lat1
+    if (dx != 0.0 || dy != 0.0) {
+        val t = maxOf(0.0, minOf(1.0, ((lat - lat1) * dy + (lon - lon1) * dx) / (dx * dx + dy * dy)))
+        val projLat = lat1 + t * dy
+        val projLon = lon1 + t * dx
+        Location.distanceBetween(lat, lon, projLat, projLon, results)
+        minDistance = minOf(minDistance, results[0])
+    }
+
+    return minDistance
+}
+
+// Determine if user is on the train
+fun isOnTrain(lat: Double?, lon: Double?,
+              prevLat: Double?, prevLon: Double?,
+              speed: Float?): Boolean {
+    if (lat == null || lon == null) return false
+    if (speed == null || speed < 10f) return false // Must be moving > 10 mph
+
+    // Convert mph to m/s for consistency
+    val speedMs = speed * 0.44704f
+
+    val distToHome = distanceTo(lat, lon, PARKLANDS_LAT, PARKLANDS_LON)
+    val distToLine = distanceToLineSegment(lat, lon, WATERLOO_LAT, WATERLOO_LON, SURBITON_LAT, SURBITON_LON)
+
+    // On train if closer to line than to home
+    return distToLine < distToHome
+}
+
 fun determineLocationMode(lat: Double, lon: Double): LocationMode {
     val distanceToHome = distanceTo(lat, lon, PARKLANDS_LAT, PARKLANDS_LON)
     val distanceToSurbiton = distanceTo(lat, lon, SURBITON_LAT, SURBITON_LON)
@@ -182,6 +239,13 @@ class MainActivity : ComponentActivity() {
     private var locationMode by mutableStateOf<LocationMode?>(null)
     private var userLat by mutableStateOf<Double?>(null)
     private var userLon by mutableStateOf<Double?>(null)
+    private var prevLat by mutableStateOf<Double?>(null)
+    private var prevLon by mutableStateOf<Double?>(null)
+    private var lastLocationTime by mutableStateOf<Long?>(null)
+    private var onTrain by mutableStateOf(false)
+    private var speed by mutableStateOf<Float?>(null)
+    private var bearing by mutableStateOf<Float?>(null)
+    private var distToLine by mutableStateOf<Float?>(null)
 
     private val locationPermissionRequest = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -227,7 +291,7 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            MainScreen(locationMode, userLat, userLon)
+            MainScreen(locationMode, userLat, userLon, onTrain, speed, bearing, distToLine)
         }
     }
 
@@ -248,10 +312,39 @@ class MainActivity : ComponentActivity() {
             cancellationToken.token
         ).addOnSuccessListener { location ->
             if (location != null) {
+                val currentTime = System.currentTimeMillis()
+
+                // Calculate speed (m/s) and convert to mph
+                speed = if (location.hasSpeed()) {
+                    location.speed * 2.237f  // m/s to mph
+                } else {
+                    null
+                }
+
+                // Calculate bearing if we have previous location
+                if (prevLat != null && prevLon != null) {
+                    bearing = calculateBearing(prevLat!!, prevLon!!, location.latitude, location.longitude)
+                }
+
+                // Calculate distance to WAT-SUR line
+                distToLine = distanceToLineSegment(
+                    location.latitude, location.longitude,
+                    WATERLOO_LAT, WATERLOO_LON,
+                    SURBITON_LAT, SURBITON_LON
+                )
+
+                // Determine if on train
+                onTrain = isOnTrain(location.latitude, location.longitude, prevLat, prevLon, speed)
+
+                android.util.Log.d("MainActivity", "GPS: (${location.latitude}, ${location.longitude}) Speed: ${speed?.format(1)} mph Bearing: ${bearing?.format(0)}° OnTrain: $onTrain")
+
+                // Update location for next iteration
+                prevLat = location.latitude
+                prevLon = location.longitude
+                lastLocationTime = currentTime
                 userLat = location.latitude
                 userLon = location.longitude
                 locationMode = determineLocationMode(location.latitude, location.longitude)
-                android.util.Log.d("MainActivity", "GPS location obtained: (${location.latitude}, ${location.longitude})")
             } else {
                 android.util.Log.w("MainActivity", "GPS location is null")
                 locationMode = LocationMode.ELSEWHERE
@@ -267,7 +360,9 @@ class MainActivity : ComponentActivity() {
 const val ALARM_INTERVAL_SECONDS = 180 // 3 minutes
 
 @Composable
-fun DistanceReadout(userLat: Double?, userLon: Double?, debugLocation: DebugLocation = DebugLocation.AUTO) {
+fun DistanceReadout(userLat: Double?, userLon: Double?, debugLocation: DebugLocation = DebugLocation.AUTO,
+                    onTrain: Boolean = false, speed: Float? = null, bearing: Float? = null,
+                    distToLine: Float? = null) {
     // Use debug location if set, otherwise use GPS
     val (effectiveLat, effectiveLon) = when (debugLocation) {
         DebugLocation.HOME -> Pair(PARKLANDS_LAT, PARKLANDS_LON)
@@ -280,16 +375,32 @@ fun DistanceReadout(userLat: Double?, userLon: Double?, debugLocation: DebugLoca
         val distToHome = metersToMiles(distanceTo(effectiveLat, effectiveLon, PARKLANDS_LAT, PARKLANDS_LON))
         val distToSurbiton = metersToMiles(distanceTo(effectiveLat, effectiveLon, SURBITON_LAT, SURBITON_LON))
         val distToWaterloo = metersToMiles(distanceTo(effectiveLat, effectiveLon, WATERLOO_LAT, WATERLOO_LON))
+        val distToLineMi = if (distToLine != null) metersToMiles(distToLine) else null
 
-        android.util.Log.d("DistanceReadout", "Coords: ($effectiveLat, $effectiveLon) Mode: $debugLocation")
-        android.util.Log.d("DistanceReadout", "Distances - Home: $distToHome, SUR: $distToSurbiton, WAT: $distToWaterloo")
+        android.util.Log.d("DistanceReadout", "Coords: ($effectiveLat, $effectiveLon) Mode: $debugLocation OnTrain: $onTrain")
+        android.util.Log.d("DistanceReadout", "Distances - Home: $distToHome, SUR: $distToSurbiton, WAT: $distToWaterloo, Line: $distToLineMi")
+        android.util.Log.d("DistanceReadout", "Speed: ${speed?.format(1)} mph, Bearing: ${bearing?.format(0)}°, OnTrain: $onTrain")
 
-        Text(
-            text = "Home: %.3f mi  |  SUR: %.3f mi  |  WAT: %.3f mi".format(distToHome, distToSurbiton, distToWaterloo),
-            color = Color(0xFF666666),
-            fontSize = 11.sp,
-            modifier = Modifier.padding(top = 4.dp)
+        val trainStatus = if (onTrain) " [ON TRAIN]" else ""
+        val mainLine = "Home: %.3f mi  |  Line: ${distToLineMi?.format(3)} mi  |  WAT: %.3f mi$trainStatus".format(
+            distToHome, distToWaterloo
         )
+        val debugLine = "Speed: ${speed?.format(1) ?: "??"} mph  |  Bearing: ${bearing?.format(0) ?: "?"} °"
+
+        Column {
+            Text(
+                text = mainLine,
+                color = if (onTrain) Color(0xFFFF6600) else Color(0xFF666666),
+                fontSize = 11.sp,
+                modifier = Modifier.padding(top = 4.dp),
+                fontWeight = if (onTrain) FontWeight.Bold else FontWeight.Normal
+            )
+            Text(
+                text = debugLine,
+                color = Color(0xFF999999),
+                fontSize = 10.sp
+            )
+        }
     } else {
         // Show when location is not available
         android.util.Log.d("DistanceReadout", "No location available - GPS: ($userLat, $userLon), Mode: $debugLocation")
@@ -303,10 +414,15 @@ fun DistanceReadout(userLat: Double?, userLon: Double?, debugLocation: DebugLoca
 }
 
 @Composable
-fun MainScreen(locationMode: LocationMode?, userLat: Double?, userLon: Double?) {
+fun MainScreen(locationMode: LocationMode?, userLat: Double?, userLon: Double?,
+               onTrain: Boolean = false, speed: Float? = null, bearing: Float? = null,
+               distToLine: Float? = null) {
     // Determine default screen based on location
     fun getDefaultScreen(): Screen {
         if (userLat == null || userLon == null) return Screen.Buses
+
+        // If on train, show bus mode (already on train, check bus times)
+        if (onTrain) return Screen.Buses
 
         val distToHome = distanceTo(userLat, userLon, PARKLANDS_LAT, PARKLANDS_LON)
         val distToWaterloo = distanceTo(userLat, userLon, WATERLOO_LAT, WATERLOO_LON)
@@ -500,7 +616,11 @@ fun MainScreen(locationMode: LocationMode?, userLat: Double?, userLon: Double?) 
                     lastAlarmThreshold = lastAlarmThreshold,
                     onLastAlarmThresholdChange = { lastAlarmThreshold = it },
                     armedAtTime = armedAtTime,
-                    onArmedAtTimeChange = { armedAtTime = it }
+                    onArmedAtTimeChange = { armedAtTime = it },
+                    onTrain = onTrain,
+                    speed = speed,
+                    bearing = bearing,
+                    distToLine = distToLine
                 )
                 is Screen.Trains -> TrainTimesScreen(
                     gpsLat = userLat,
@@ -534,7 +654,11 @@ fun MainScreen(locationMode: LocationMode?, userLat: Double?, userLon: Double?) 
                             // No cached data, trigger immediate refresh
                             trainCountdown = 0
                         }
-                    }
+                    },
+                    onTrain = onTrain,
+                    speed = speed,
+                    bearing = bearing,
+                    distToLine = distToLine
                 )
             }
         }
@@ -551,7 +675,11 @@ fun BusTimesScreen(
     lastAlarmThreshold: Int,
     onLastAlarmThresholdChange: (Int) -> Unit,
     armedAtTime: Long,
-    onArmedAtTimeChange: (Long) -> Unit
+    onArmedAtTimeChange: (Long) -> Unit,
+    onTrain: Boolean = false,
+    speed: Float? = null,
+    bearing: Float? = null,
+    distToLine: Float? = null
 ) {
     val context = LocalContext.current
     var busData by remember { mutableStateOf<BusData?>(null) }
@@ -859,7 +987,7 @@ fun BusTimesScreen(
             }
 
             // Distance readout
-            DistanceReadout(userLat, userLon, debugLocation)
+            DistanceReadout(userLat, userLon, debugLocation, onTrain, speed, bearing, distToLine)
 
             // Refresh countdown or status
             if (error == null || busData != null) {
@@ -1269,7 +1397,11 @@ fun TrainTimesScreen(
     showRefreshedMessage: Boolean,
     debugLocation: DebugLocation,
     dataAge: Long?,
-    onDebugLocationChange: (DebugLocation) -> Unit
+    onDebugLocationChange: (DebugLocation) -> Unit,
+    onTrain: Boolean = false,
+    speed: Float? = null,
+    bearing: Float? = null,
+    distToLine: Float? = null
 ) {
     // All state is now managed by parent (MainScreen) and runs in background
 
@@ -1322,7 +1454,7 @@ fun TrainTimesScreen(
             }
 
             // Distance readout
-            DistanceReadout(gpsLat, gpsLon, debugLocation)
+            DistanceReadout(gpsLat, gpsLon, debugLocation, onTrain, speed, bearing, distToLine)
 
             if (error == null || trainData != null) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
