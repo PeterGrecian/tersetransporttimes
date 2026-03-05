@@ -83,8 +83,13 @@ def soap_request(api_key, from_station, to_station, num_services=6):
         return response.read().decode('utf-8')
 
 
-def parse_darwin_response(xml_data):
-    """Parse Darwin SOAP XML response (ldb12 / 2021-11-01)."""
+def parse_darwin_response(xml_data, destination_crs='WAT'):
+    """Parse Darwin SOAP XML response (ldb12 / 2021-11-01).
+
+    Args:
+        xml_data: SOAP response XML
+        destination_crs: Destination station CRS code (to count stops only up to there)
+    """
     # Response uses multiple versioned namespaces
     ns = {
         'lt4': 'http://thalesgroup.com/RTTI/2015-11-27/ldb/types',   # std, etd, platform, operator
@@ -113,15 +118,37 @@ def parse_darwin_response(xml_data):
 
             # Get subsequent calling points for stops and arrival time
             calling_points = service.findall('.//lt8:subsequentCallingPoints/lt8:callingPointList/lt8:callingPoint', ns)
-            stops = len(calling_points) - 1 if calling_points else 0
-            arrival_time = ''
 
-            # Get destination arrival time (last calling point)
+            # Count stops only up to destination, get arrival time at destination
+            stops = 0
+            arrival_time = ''
+            found_destination = False
+
             if calling_points:
-                last_point = calling_points[-1]
-                st = last_point.find('lt8:st', ns)
-                if st is not None:
-                    arrival_time = st.text
+                for cp in calling_points:
+                    crs_elem = cp.find('lt8:crs', ns)
+                    st_elem = cp.find('lt8:st', ns)
+
+                    if crs_elem is not None and st_elem is not None:
+                        crs = crs_elem.text
+                        st = st_elem.text
+
+                        # Stop counting once we reach the destination
+                        if crs == destination_crs.upper():
+                            arrival_time = st
+                            found_destination = True
+                            break
+
+                        # Count intermediate stops (not the destination)
+                        stops += 1
+
+            # If we didn't find the destination in calling points, use the last one
+            if not found_destination and calling_points:
+                last_cp = calling_points[-1]
+                st_elem = last_cp.find('lt8:st', ns)
+                if st_elem is not None:
+                    arrival_time = st_elem.text
+                stops = len(calling_points) - 1
 
             # Calculate journey minutes
             journey_mins = 0
@@ -193,7 +220,7 @@ def fetch_departures(origin="sur", destination="wat", api_key=None):
         print(f"Fetching Darwin data: {origin_upper} to {destination_upper}")
         xml_response = soap_request(api_key, origin_upper, destination_upper)
         print("Got Darwin response, parsing...")
-        departures = parse_darwin_response(xml_response)
+        departures = parse_darwin_response(xml_response, destination_crs=destination_upper)
         print(f"Parsed {len(departures)} departures")
         return departures, None
     except Exception as e:
