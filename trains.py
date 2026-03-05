@@ -284,6 +284,30 @@ def lambda_handler(event, context):
 
 if __name__ == '__main__':
     import sys
+    import argparse
+
+    # Test mode with direction flags
+    parser = argparse.ArgumentParser(
+        description='Test Darwin train API',
+        epilog='Examples:\n'
+               '  python trains.py                    # Surbiton → Waterloo (default)\n'
+               '  python trains.py --from sur --to wat  # Surbiton → Waterloo (explicit)\n'
+               '  python trains.py --reverse          # Waterloo → Surbiton (reversed)\n'
+               '  python trains.py --from wat --to sur  # Waterloo → Surbiton (explicit)',
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument('--from', '-f', dest='from_station', default='sur',
+                        help='Origin station CRS code (default: sur=Surbiton)')
+    parser.add_argument('--to', '-t', dest='to_station', default='wat',
+                        help='Destination station CRS code (default: wat=Waterloo)')
+    parser.add_argument('--reverse', '-r', action='store_true',
+                        help='Reverse direction (swap from/to)')
+
+    args = parser.parse_args()
+
+    # Swap if reverse flag is set
+    from_station = args.to_station if args.reverse else args.from_station
+    to_station = args.from_station if args.reverse else args.to_station
 
     # For local testing - tries Parameter Store first, then environment variable
     api_key = get_darwin_api_key()
@@ -293,11 +317,25 @@ if __name__ == '__main__':
         print("Get your key from: https://realtime.nationalrail.co.uk/OpenLDBWSRegistration/")
         sys.exit(1)
 
-    origin = sys.argv[1] if len(sys.argv) > 1 else 'sur'
-    destination = sys.argv[2] if len(sys.argv) > 2 else 'wat'
+    print(f"Testing: {from_station.upper()} → {to_station.upper()}")
+    print()
 
-    departures, error = fetch_departures(origin, destination, api_key)
+    departures, error = fetch_departures(from_station, to_station, api_key)
     if error:
         print(f"Error: {error}")
     else:
-        print(format_json(departures, origin, destination))
+        result = json.loads(format_json(departures, from_station, to_station))
+        print(f"Origin: {result['originName']}")
+        print(f"Destination: {result['destinationName']}")
+        print(f"Departures: {len(departures)}")
+        print()
+        for i, dep in enumerate(departures[:3], 1):
+            print(f"{i}. {dep['scheduledDeparture']} → {dep['arrivalTime']} "
+                  f"({dep['journeyMins']}min, {dep['stops']} stops)")
+            if dep['delayMinutes']:
+                print(f"   Delay: {dep['delayMinutes']}min ({dep['status']})")
+            if dep['cancelled']:
+                print(f"   ❌ CANCELLED")
+        print()
+        print("Full response (JSON):")
+        print(format_json(departures, from_station, to_station))
