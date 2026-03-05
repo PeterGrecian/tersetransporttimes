@@ -2,15 +2,15 @@
 
 Bus stops used in the TerseTransportTimes app.
 
-## Parklands
+## Active Stops (Simplified Commute)
 
-- **490010781S** = Inbound (towards Kingston Hospital via Surbiton)
-- **490010781N** = Outbound (towards Hook via Tolworth)
+- **490010781S** = Parklands Inbound (towards Kingston/Surbiton) — Morning leg
+- **490015165B** = Surbiton Stop NK, Outbound (towards Hook/Home) — Evening leg
 
-## Surbiton Station
+## Reference (Unused)
 
-- **490015165A** = Stop NC, Inbound (towards Kingston)
-- **490015165B** = Stop NK, Outbound (towards Hook)
+- **490010781N** = Parklands Outbound (towards Hook via Tolworth) — *Not used*
+- **490015165A** = Surbiton Stop NC, Inbound (towards Kingston) — *Not used*
 
 ## References
 
