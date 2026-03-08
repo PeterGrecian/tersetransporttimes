@@ -7,7 +7,7 @@ Android app showing bus and train times for a specific commute. Designed to be *
 - No configuration, no menus, no settings
 - GPS determines what to show automatically (near home → buses home; near Surbiton → buses to Surbiton; near Waterloo → trains)
 - Data refreshes every 30 seconds without user action
-- Alarm arms automatically when near a bus stop
+- Tap a bus time to arm an alarm; it sounds every 3 minutes as the bus approaches, then disarms automatically
 
 ## Architecture
 
