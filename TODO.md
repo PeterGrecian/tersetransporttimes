@@ -40,6 +40,23 @@
 - [ ] **Bus API efficiency**: Currently t3.py always fetches BOTH inbound and outbound bus times (2 TfL API calls), even when the app only displays one direction based on location. Could add a `direction` query parameter to only fetch what's needed and reduce API calls by 50%.
 - [ ] **Pre-fetch optimization**: Both bus and train screens now cache data per location (Auto/Home/SUR/WAT), but first visit to each location requires a network fetch. Could pre-fetch other common locations in background after initial load (e.g., after fetching SUR trains, pre-fetch WAT trains). Requires proper coroutine scoping to avoid blocking main thread.
 
+## Waterloo → Work leg (not yet implemented)
+
+The final leg of the commute: Waterloo to work (88 Wood St, EC2 area). Two options:
+- **Waterloo & City line** → Bank, then walk (~10 min journey, no changes)
+- **Bus 26 or 76** → Aldwych / City area (slower but above ground, no interchange)
+
+When near Waterloo in the morning, the app currently shows nothing useful for this leg.
+Needs: TfL Tube API (different from bus API), or bus arrivals for stops near Waterloo for routes 26/76.
+
+## Multi-user / configurability
+
+Currently all stops, routes and locations are hardcoded for one commute. To make T3 useful for others:
+- Needs a one-time setup screen (stops, routes, home location)
+- Main screen stays zero-interaction once configured
+- Tension: setup adds complexity, but only visited once
+- Not a priority until the app is stable and worth sharing
+
 ## Bus-train integration - this is for much later when all the bugs are shaken out
 - [ ] Calculate from bus arrival time at Surbiton station + walk time which trains you can catch
 - [ ] t3.py (bus) and trains_darwin.py (trains) already run as separate Lambdas - could add a combined endpoint
