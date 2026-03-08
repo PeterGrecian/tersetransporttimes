@@ -83,7 +83,7 @@ def fetch_arrivals_for_stop(stop_key, api_key=None):
 
     # Sort by time and limit to first 3
     seconds.sort()
-    seconds = seconds[:3]
+    seconds = seconds[:2]
 
     return {
         "stop": stop_config["name"],

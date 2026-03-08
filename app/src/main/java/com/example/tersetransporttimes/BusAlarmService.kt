@@ -25,7 +25,6 @@ class BusAlarmService : Service() {
         const val ACTION_STOP = "com.example.tersetransporttimes.STOP_ALARM"
 
         const val EXTRA_STOP = "stop"
-        const val EXTRA_DIRECTION = "direction"
         const val EXTRA_INDEX = "index"
         const val EXTRA_INITIAL_SECONDS = "initial_seconds"
 
@@ -53,7 +52,6 @@ class BusAlarmService : Service() {
     private var checkJob: Job? = null
 
     private var stop = "parklands"
-    private var direction = "inbound"
     private var index = 0
     private var lastAlarmThreshold = Int.MAX_VALUE
     private var startedAtTime = 0L
@@ -70,7 +68,6 @@ class BusAlarmService : Service() {
         }
 
         stop = intent?.getStringExtra(EXTRA_STOP) ?: "parklands"
-        direction = intent?.getStringExtra(EXTRA_DIRECTION) ?: "inbound"
         index = intent?.getIntExtra(EXTRA_INDEX, 0) ?: 0
         val initialSeconds = intent?.getIntExtra(EXTRA_INITIAL_SECONDS, 600) ?: 600
 
@@ -135,28 +132,15 @@ class BusAlarmService : Service() {
         try {
             val client = OkHttpClient()
             val request = Request.Builder()
-                .url("https://w3.petergrecian.co.uk/t3?stop=$stop")
+                .url("https://vz66vhhtb9.execute-api.eu-west-1.amazonaws.com/t3?stop=$stop")
                 .header("Accept", "application/json")
                 .build()
 
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return@withContext null
                 val json = JSONObject(response.body?.string() ?: "{}")
-
-                val directionData = if (direction == "inbound" && json.has("inbound")) {
-                    json.getJSONObject("inbound")
-                } else if (direction == "outbound" && json.has("outbound")) {
-                    json.getJSONObject("outbound")
-                } else {
-                    return@withContext null
-                }
-
-                val secondsArray = directionData.getJSONArray("seconds")
-                if (index < secondsArray.length()) {
-                    secondsArray.getInt(index)
-                } else {
-                    null
-                }
+                val secondsArray = json.getJSONArray("seconds")
+                if (index < secondsArray.length()) secondsArray.getInt(index) else null
             }
         } catch (e: Exception) {
             e.printStackTrace()

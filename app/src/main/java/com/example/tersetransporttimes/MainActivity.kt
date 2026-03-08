@@ -22,7 +22,9 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
@@ -97,10 +99,8 @@ enum class LocationMode {
 
 data class BusData(
     val stopName: String,
-    val inboundSeconds: List<Int>?,
-    val outboundSeconds: List<Int>?,
-    val inboundDest: String?,
-    val outboundDest: String?
+    val seconds: List<Int>,
+    val destination: String
 )
 
 data class CachedBusData(
@@ -246,6 +246,11 @@ class MainActivity : ComponentActivity() {
     private var speed by mutableStateOf<Float?>(null)
     private var bearing by mutableStateOf<Float?>(null)
     private var distToLine by mutableStateOf<Float?>(null)
+    // Rolling speed history for averages: list of (timestamp_ms, speed_mph)
+    private var speedHistory by mutableStateOf<List<Pair<Long, Float>>>(emptyList())
+    private var speed30s by mutableStateOf<Float?>(null)
+    private var speed3min by mutableStateOf<Float?>(null)
+    private var speed30min by mutableStateOf<Float?>(null)
 
     private val locationPermissionRequest = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -253,7 +258,7 @@ class MainActivity : ComponentActivity() {
         when {
             permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
             permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true -> {
-                checkLocation()
+                startLocationPolling()
             }
             else -> {
                 // Permission denied - show both directions from Parklands
@@ -269,12 +274,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Request location permission
+        // Request location permission, then start 30s polling loop
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
             == PackageManager.PERMISSION_GRANTED ||
             ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)
             == PackageManager.PERMISSION_GRANTED) {
-            checkLocation()
+            startLocationPolling()
         } else {
             locationPermissionRequest.launch(arrayOf(
                 Manifest.permission.ACCESS_FINE_LOCATION,
@@ -291,7 +296,17 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            MainScreen(locationMode, userLat, userLon, onTrain, speed, bearing, distToLine)
+            MainScreen(locationMode, userLat, userLon, onTrain, speed, bearing, distToLine,
+                speed30s, speed3min, speed30min)
+        }
+    }
+
+    private fun startLocationPolling() {
+        lifecycleScope.launch {
+            while (true) {
+                checkLocation()
+                delay(30_000L)
+            }
         }
     }
 
@@ -315,11 +330,17 @@ class MainActivity : ComponentActivity() {
                 val currentTime = System.currentTimeMillis()
 
                 // Calculate speed (m/s) and convert to mph
-                speed = if (location.hasSpeed()) {
-                    location.speed * 2.237f  // m/s to mph
-                } else {
-                    null
-                }
+                val spd = if (location.hasSpeed()) location.speed * 2.237f else 0f
+                speed = spd
+
+                // Maintain rolling 30-min speed history and compute averages
+                val now2 = System.currentTimeMillis()
+                val cutoff30min = now2 - 30 * 60_000L
+                val newHistory = (speedHistory + Pair(now2, spd)).filter { it.first > cutoff30min }
+                speedHistory = newHistory
+                speed30s  = newHistory.filter { it.first > now2 - 30_000L }.map { it.second }.average().let { if (it.isNaN()) null else it.toFloat() }
+                speed3min = newHistory.filter { it.first > now2 - 3 * 60_000L }.map { it.second }.average().let { if (it.isNaN()) null else it.toFloat() }
+                speed30min = newHistory.map { it.second }.average().let { if (it.isNaN()) null else it.toFloat() }
 
                 // Calculate bearing if we have previous location
                 if (prevLat != null && prevLon != null) {
@@ -362,7 +383,8 @@ const val ALARM_INTERVAL_SECONDS = 180 // 3 minutes
 @Composable
 fun DistanceReadout(userLat: Double?, userLon: Double?, debugLocation: DebugLocation = DebugLocation.AUTO,
                     onTrain: Boolean = false, speed: Float? = null, bearing: Float? = null,
-                    distToLine: Float? = null) {
+                    distToLine: Float? = null,
+                    speed30s: Float? = null, speed3min: Float? = null, speed30min: Float? = null) {
     // Use debug location if set, otherwise use GPS
     val (effectiveLat, effectiveLon) = when (debugLocation) {
         DebugLocation.HOME -> Pair(PARKLANDS_LAT, PARKLANDS_LON)
@@ -385,7 +407,10 @@ fun DistanceReadout(userLat: Double?, userLon: Double?, debugLocation: DebugLoca
         val mainLine = "Home: %.3f mi  |  Line: ${distToLineMi?.format(3)} mi  |  WAT: %.3f mi$trainStatus".format(
             distToHome, distToWaterloo
         )
-        val debugLine = "Speed: ${speed?.format(1) ?: "??"} mph  |  Bearing: ${bearing?.format(0) ?: "?"} °"
+        val s30  = speed30s?.format(1)  ?: (speed ?: 0f).format(1)
+        val s3m  = speed3min?.format(1) ?: "--"
+        val s30m = speed30min?.format(1) ?: "--"
+        val debugLine = "Speed: $s30 / $s3m / $s30m mph (30s/3m/30m)  |  Bearing: ${(bearing ?: 0f).format(0)}°"
 
         Column {
             Text(
@@ -416,7 +441,8 @@ fun DistanceReadout(userLat: Double?, userLon: Double?, debugLocation: DebugLoca
 @Composable
 fun MainScreen(locationMode: LocationMode?, userLat: Double?, userLon: Double?,
                onTrain: Boolean = false, speed: Float? = null, bearing: Float? = null,
-               distToLine: Float? = null) {
+               distToLine: Float? = null,
+               speed30s: Float? = null, speed3min: Float? = null, speed30min: Float? = null) {
     // Determine default screen based on location
     fun getDefaultScreen(): Screen {
         if (userLat == null || userLon == null) return Screen.Buses
@@ -620,7 +646,10 @@ fun MainScreen(locationMode: LocationMode?, userLat: Double?, userLon: Double?,
                     onTrain = onTrain,
                     speed = speed,
                     bearing = bearing,
-                    distToLine = distToLine
+                    distToLine = distToLine,
+                    speed30s = speed30s,
+                    speed3min = speed3min,
+                    speed30min = speed30min
                 )
                 is Screen.Trains -> TrainTimesScreen(
                     gpsLat = userLat,
@@ -658,7 +687,10 @@ fun MainScreen(locationMode: LocationMode?, userLat: Double?, userLon: Double?,
                     onTrain = onTrain,
                     speed = speed,
                     bearing = bearing,
-                    distToLine = distToLine
+                    distToLine = distToLine,
+                    speed30s = speed30s,
+                    speed3min = speed3min,
+                    speed30min = speed30min
                 )
             }
         }
@@ -679,7 +711,10 @@ fun BusTimesScreen(
     onTrain: Boolean = false,
     speed: Float? = null,
     bearing: Float? = null,
-    distToLine: Float? = null
+    distToLine: Float? = null,
+    speed30s: Float? = null,
+    speed3min: Float? = null,
+    speed30min: Float? = null
 ) {
     val context = LocalContext.current
     var busData by remember { mutableStateOf<BusData?>(null) }
@@ -724,10 +759,7 @@ fun BusTimesScreen(
     // Adjust bus data times based on age
     fun adjustBusDataForAge(data: BusData, ageMs: Long): BusData {
         val ageSeconds = (ageMs / 1000).toInt()
-        return data.copy(
-            inboundSeconds = data.inboundSeconds?.map { (it - ageSeconds).coerceAtLeast(0) },
-            outboundSeconds = data.outboundSeconds?.map { (it - ageSeconds).coerceAtLeast(0) }
-        )
+        return data.copy(seconds = data.seconds.map { (it - ageSeconds).coerceAtLeast(0) })
     }
 
     // Determine which stop to fetch based on effective location
@@ -759,38 +791,25 @@ fun BusTimesScreen(
     fun checkAlarm(data: BusData?) {
         if (armedBusKey == null || data == null) return
 
-        val seconds = when {
-            armedBusKey!!.startsWith("inbound-") -> {
-                val index = armedBusKey!!.removePrefix("inbound-").toIntOrNull() ?: return
-                data.inboundSeconds?.getOrNull(index)
-            }
-            armedBusKey!!.startsWith("outbound-") -> {
-                val index = armedBusKey!!.removePrefix("outbound-").toIntOrNull() ?: return
-                data.outboundSeconds?.getOrNull(index)
-            }
-            else -> null
+        val index = armedBusKey!!.toIntOrNull() ?: return
+        val seconds = data.seconds.getOrNull(index) ?: return
+
+        if (seconds <= 0) {
+            onArmedBusKeyChange(null)
+            return
         }
 
-        if (seconds != null) {
-            // Calculate the next 3-minute threshold below current time
-            // e.g., 500 seconds -> threshold is 360 (6 min)
-            // e.g., 200 seconds -> threshold is 180 (3 min)
-            val currentThreshold = (seconds / ALARM_INTERVAL_SECONDS) * ALARM_INTERVAL_SECONDS
-
-            // If we've crossed below a new threshold, sound alarm
-            // Add 15-second grace period after arming to prevent immediate alarm
-            val timeSinceArmed = System.currentTimeMillis() - armedAtTime
-            if (currentThreshold < lastAlarmThreshold && timeSinceArmed > 15_000) {
-                playAlarmSound(context)
-                onLastAlarmThresholdChange(currentThreshold)
+        val currentThreshold = (seconds / ALARM_INTERVAL_SECONDS) * ALARM_INTERVAL_SECONDS
+        val timeSinceArmed = System.currentTimeMillis() - armedAtTime
+        if (currentThreshold < lastAlarmThreshold && timeSinceArmed > 15_000) {
+            onLastAlarmThresholdChange(currentThreshold)
+            val minutes = seconds / 60
+            playAlarmSound(context)
+            if (seconds < ALARM_INTERVAL_SECONDS) {
+                onArmedBusKeyChange(null)
+                BusAlarmService.stopAlarm()
+                context.stopService(Intent(context, BusAlarmService::class.java))
             }
-        } else {
-            // Armed bus no longer exists in the data - auto-disarm
-            onArmedBusKeyChange(null)
-            onLastAlarmThresholdChange(Int.MAX_VALUE)
-            stopAlarmSound()
-            BusAlarmService.stopAlarm()
-            context.stopService(Intent(context, BusAlarmService::class.java))
         }
     }
 
@@ -987,7 +1006,7 @@ fun BusTimesScreen(
             }
 
             // Distance readout
-            DistanceReadout(userLat, userLon, debugLocation, onTrain, speed, bearing, distToLine)
+            DistanceReadout(userLat, userLon, debugLocation, onTrain, speed, bearing, distToLine, speed30s, speed3min, speed30min)
 
             // Refresh countdown or status
             if (error == null || busData != null) {
@@ -1042,216 +1061,43 @@ fun BusTimesScreen(
                 )
             } else {
                 busData?.let { data ->
-                    when (effectiveLocationMode) {
-                        LocationMode.NEAR_HOME -> {
-                            // Near Parklands - only show inbound (to Kingston)
-                            data.inboundSeconds?.let { seconds ->
-                                DirectionSection(
-                                    seconds = seconds,
-                                    destination = data.inboundDest ?: "Kingston",
-                                    direction = "inbound",
-                                    armedBusKey = armedBusKey,
-                                    isLoading = isLoading,
-                                    onTimeBoxClick = { key, currentSeconds ->
-                                        if (isAlarmRinging() || BusAlarmService.isRinging()) {
-                                            // Alarm is ringing - just stop the sound, stay armed
-                                            stopAlarmSound()
-                                            BusAlarmService.stopAlarm()
-                                        } else if (armedBusKey == key) {
-                                            // Armed but not ringing - disarm completely
-                                            onArmedBusKeyChange(null)
-                                            onLastAlarmThresholdChange(Int.MAX_VALUE)
-                                            stopAlarmSound()
-                                            BusAlarmService.stopAlarm()
-                                            context.stopService(Intent(context, BusAlarmService::class.java))
-                                        } else {
-                                            // Not armed - arm this bus
-                                            onArmedBusKeyChange(key)
-                                            onArmedAtTimeChange(System.currentTimeMillis())
-                                            // Calculate threshold, skipping immediate alarm if close to boundary
-                                            val currentThreshold = (currentSeconds / ALARM_INTERVAL_SECONDS) * ALARM_INTERVAL_SECONDS
-                                            val distanceToThreshold = currentSeconds - currentThreshold
-                                            onLastAlarmThresholdChange(if (distanceToThreshold < 30) {
-                                                // Close to boundary, skip this threshold
-                                                maxOf(0, currentThreshold - ALARM_INTERVAL_SECONDS)
-                                            } else {
-                                                currentThreshold
-                                            })
-                                            stopAlarmSound()
+                    DirectionSection(
+                        seconds = data.seconds,
+                        destination = data.destination,
+                        direction = "bus",
+                        armedBusKey = armedBusKey,
+                        isLoading = isLoading,
+                        onTimeBoxClick = { key, currentSeconds ->
+                            if (isAlarmRinging() || BusAlarmService.isRinging()) {
+                                stopAlarmSound()
+                                BusAlarmService.stopAlarm()
+                            } else if (armedBusKey == key) {
+                                onArmedBusKeyChange(null)
+                                onLastAlarmThresholdChange(Int.MAX_VALUE)
+                                stopAlarmSound()
+                                BusAlarmService.stopAlarm()
+                                context.stopService(Intent(context, BusAlarmService::class.java))
+                            } else {
+                                onArmedBusKeyChange(key)
+                                onArmedAtTimeChange(System.currentTimeMillis())
+                                val currentThreshold = (currentSeconds / ALARM_INTERVAL_SECONDS) * ALARM_INTERVAL_SECONDS
+                                val distanceToThreshold = currentSeconds - currentThreshold
+                                onLastAlarmThresholdChange(if (distanceToThreshold < 30) {
+                                    maxOf(0, currentThreshold - ALARM_INTERVAL_SECONDS)
+                                } else {
+                                    currentThreshold
+                                })
+                                stopAlarmSound()
 
-                                            val parts = key.split("-")
-                                            val direction = parts[0]
-                                            val index = parts.getOrNull(1)?.toIntOrNull() ?: 0
-
-                                            val serviceIntent = Intent(context, BusAlarmService::class.java).apply {
-                                                putExtra(BusAlarmService.EXTRA_STOP, stopParam)
-                                                putExtra(BusAlarmService.EXTRA_DIRECTION, direction)
-                                                putExtra(BusAlarmService.EXTRA_INDEX, index)
-                                                putExtra(BusAlarmService.EXTRA_INITIAL_SECONDS, currentSeconds)
-                                            }
-                                            context.startForegroundService(serviceIntent)
-                                        }
-                                    }
-                                )
+                                val serviceIntent = Intent(context, BusAlarmService::class.java).apply {
+                                    putExtra(BusAlarmService.EXTRA_STOP, stopParam)
+                                    putExtra(BusAlarmService.EXTRA_INDEX, key.toIntOrNull() ?: 0)
+                                    putExtra(BusAlarmService.EXTRA_INITIAL_SECONDS, currentSeconds)
+                                }
+                                context.startForegroundService(serviceIntent)
                             }
                         }
-                        LocationMode.NEAR_SURBITON -> {
-                            // Near Surbiton - only show outbound (to Hook)
-                            data.outboundSeconds?.let { seconds ->
-                                DirectionSection(
-                                    seconds = seconds,
-                                    destination = data.outboundDest ?: "Hook",
-                                    direction = "outbound",
-                                    armedBusKey = armedBusKey,
-                                    isLoading = isLoading,
-                                    onTimeBoxClick = { key, currentSeconds ->
-                                        if (isAlarmRinging() || BusAlarmService.isRinging()) {
-                                            // Alarm is ringing - just stop the sound, stay armed
-                                            stopAlarmSound()
-                                            BusAlarmService.stopAlarm()
-                                        } else if (armedBusKey == key) {
-                                            // Armed but not ringing - disarm completely
-                                            onArmedBusKeyChange(null)
-                                            onLastAlarmThresholdChange(Int.MAX_VALUE)
-                                            stopAlarmSound()
-                                            BusAlarmService.stopAlarm()
-                                            context.stopService(Intent(context, BusAlarmService::class.java))
-                                        } else {
-                                            // Not armed - arm this bus
-                                            onArmedBusKeyChange(key)
-                                            onArmedAtTimeChange(System.currentTimeMillis())
-                                            // Calculate threshold, skipping immediate alarm if close to boundary
-                                            val currentThreshold = (currentSeconds / ALARM_INTERVAL_SECONDS) * ALARM_INTERVAL_SECONDS
-                                            val distanceToThreshold = currentSeconds - currentThreshold
-                                            onLastAlarmThresholdChange(if (distanceToThreshold < 30) {
-                                                // Close to boundary, skip this threshold
-                                                maxOf(0, currentThreshold - ALARM_INTERVAL_SECONDS)
-                                            } else {
-                                                currentThreshold
-                                            })
-                                            stopAlarmSound()
-
-                                            val parts = key.split("-")
-                                            val direction = parts[0]
-                                            val index = parts.getOrNull(1)?.toIntOrNull() ?: 0
-
-                                            val serviceIntent = Intent(context, BusAlarmService::class.java).apply {
-                                                putExtra(BusAlarmService.EXTRA_STOP, stopParam)
-                                                putExtra(BusAlarmService.EXTRA_DIRECTION, direction)
-                                                putExtra(BusAlarmService.EXTRA_INDEX, index)
-                                                putExtra(BusAlarmService.EXTRA_INITIAL_SECONDS, currentSeconds)
-                                            }
-                                            context.startForegroundService(serviceIntent)
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                        else -> {
-                            // Elsewhere - show both directions from Parklands
-                            data.inboundSeconds?.let { seconds ->
-                                DirectionSection(
-                                    seconds = seconds,
-                                    destination = data.inboundDest ?: "Kingston",
-                                    direction = "inbound",
-                                    armedBusKey = armedBusKey,
-                                    isLoading = isLoading,
-                                    onTimeBoxClick = { key, currentSeconds ->
-                                        if (isAlarmRinging() || BusAlarmService.isRinging()) {
-                                            // Alarm is ringing - just stop the sound, stay armed
-                                            stopAlarmSound()
-                                            BusAlarmService.stopAlarm()
-                                        } else if (armedBusKey == key) {
-                                            // Armed but not ringing - disarm completely
-                                            onArmedBusKeyChange(null)
-                                            onLastAlarmThresholdChange(Int.MAX_VALUE)
-                                            stopAlarmSound()
-                                            BusAlarmService.stopAlarm()
-                                            context.stopService(Intent(context, BusAlarmService::class.java))
-                                        } else {
-                                            // Not armed - arm this bus
-                                            onArmedBusKeyChange(key)
-                                            onArmedAtTimeChange(System.currentTimeMillis())
-                                            // Calculate threshold, skipping immediate alarm if close to boundary
-                                            val currentThreshold = (currentSeconds / ALARM_INTERVAL_SECONDS) * ALARM_INTERVAL_SECONDS
-                                            val distanceToThreshold = currentSeconds - currentThreshold
-                                            onLastAlarmThresholdChange(if (distanceToThreshold < 30) {
-                                                // Close to boundary, skip this threshold
-                                                maxOf(0, currentThreshold - ALARM_INTERVAL_SECONDS)
-                                            } else {
-                                                currentThreshold
-                                            })
-                                            stopAlarmSound()
-
-                                            val parts = key.split("-")
-                                            val direction = parts[0]
-                                            val index = parts.getOrNull(1)?.toIntOrNull() ?: 0
-
-                                            val serviceIntent = Intent(context, BusAlarmService::class.java).apply {
-                                                putExtra(BusAlarmService.EXTRA_STOP, stopParam)
-                                                putExtra(BusAlarmService.EXTRA_DIRECTION, direction)
-                                                putExtra(BusAlarmService.EXTRA_INDEX, index)
-                                                putExtra(BusAlarmService.EXTRA_INITIAL_SECONDS, currentSeconds)
-                                            }
-                                            context.startForegroundService(serviceIntent)
-                                        }
-                                    }
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(48.dp))
-
-                            data.outboundSeconds?.let { seconds ->
-                                DirectionSection(
-                                    seconds = seconds,
-                                    destination = data.outboundDest ?: "Hook",
-                                    direction = "outbound",
-                                    armedBusKey = armedBusKey,
-                                    isLoading = isLoading,
-                                    onTimeBoxClick = { key, currentSeconds ->
-                                        if (isAlarmRinging() || BusAlarmService.isRinging()) {
-                                            // Alarm is ringing - just stop the sound, stay armed
-                                            stopAlarmSound()
-                                            BusAlarmService.stopAlarm()
-                                        } else if (armedBusKey == key) {
-                                            // Armed but not ringing - disarm completely
-                                            onArmedBusKeyChange(null)
-                                            onLastAlarmThresholdChange(Int.MAX_VALUE)
-                                            stopAlarmSound()
-                                            BusAlarmService.stopAlarm()
-                                            context.stopService(Intent(context, BusAlarmService::class.java))
-                                        } else {
-                                            // Not armed - arm this bus
-                                            onArmedBusKeyChange(key)
-                                            onArmedAtTimeChange(System.currentTimeMillis())
-                                            // Calculate threshold, skipping immediate alarm if close to boundary
-                                            val currentThreshold = (currentSeconds / ALARM_INTERVAL_SECONDS) * ALARM_INTERVAL_SECONDS
-                                            val distanceToThreshold = currentSeconds - currentThreshold
-                                            onLastAlarmThresholdChange(if (distanceToThreshold < 30) {
-                                                // Close to boundary, skip this threshold
-                                                maxOf(0, currentThreshold - ALARM_INTERVAL_SECONDS)
-                                            } else {
-                                                currentThreshold
-                                            })
-                                            stopAlarmSound()
-
-                                            val parts = key.split("-")
-                                            val direction = parts[0]
-                                            val index = parts.getOrNull(1)?.toIntOrNull() ?: 0
-
-                                            val serviceIntent = Intent(context, BusAlarmService::class.java).apply {
-                                                putExtra(BusAlarmService.EXTRA_STOP, stopParam)
-                                                putExtra(BusAlarmService.EXTRA_DIRECTION, direction)
-                                                putExtra(BusAlarmService.EXTRA_INDEX, index)
-                                                putExtra(BusAlarmService.EXTRA_INITIAL_SECONDS, currentSeconds)
-                                            }
-                                            context.startForegroundService(serviceIntent)
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                    }
+                    )
                 }
             }
         }
@@ -1276,7 +1122,7 @@ fun DirectionSection(
                 TimeBox(displayText = null, isNext = false, isArmed = false, isLoading = isLoading, onClick = {})
             } else {
                 seconds.forEachIndexed { index, secs ->
-                    val key = "$direction-$index"
+                    val key = "$index"
                     TimeBox(
                         displayText = secondsToQuarterMinutes(secs),
                         isNext = index == 0,
@@ -1345,42 +1191,11 @@ private suspend fun fetchBusTimes(stop: String = "parklands"): BusData = withCon
         val json = JSONObject(response.body?.string() ?: "{}")
 
         val stopName = json.optString("stop", "Parklands")
+        val destination = json.optString("destination", "")
+        val secondsArray = json.getJSONArray("seconds")
+        val seconds = (0 until secondsArray.length()).map { secondsArray.getInt(it) }
 
-        // Parse inbound if present
-        var inboundSeconds: List<Int>? = null
-        var inboundDest: String? = null
-        if (json.has("inbound")) {
-            val inbound = json.getJSONObject("inbound")
-            val inboundList = mutableListOf<Int>()
-            val inboundArr = inbound.getJSONArray("seconds")
-            for (i in 0 until inboundArr.length()) {
-                inboundList.add(inboundArr.getInt(i))
-            }
-            inboundSeconds = inboundList
-            inboundDest = inbound.getString("destination")
-        }
-
-        // Parse outbound if present
-        var outboundSeconds: List<Int>? = null
-        var outboundDest: String? = null
-        if (json.has("outbound")) {
-            val outbound = json.getJSONObject("outbound")
-            val outboundList = mutableListOf<Int>()
-            val outboundArr = outbound.getJSONArray("seconds")
-            for (i in 0 until outboundArr.length()) {
-                outboundList.add(outboundArr.getInt(i))
-            }
-            outboundSeconds = outboundList
-            outboundDest = outbound.getString("destination")
-        }
-
-        BusData(
-            stopName = stopName,
-            inboundSeconds = inboundSeconds,
-            outboundSeconds = outboundSeconds,
-            inboundDest = inboundDest,
-            outboundDest = outboundDest
-        )
+        BusData(stopName = stopName, seconds = seconds, destination = destination)
     }
 }
 
@@ -1401,7 +1216,10 @@ fun TrainTimesScreen(
     onTrain: Boolean = false,
     speed: Float? = null,
     bearing: Float? = null,
-    distToLine: Float? = null
+    distToLine: Float? = null,
+    speed30s: Float? = null,
+    speed3min: Float? = null,
+    speed30min: Float? = null
 ) {
     // All state is now managed by parent (MainScreen) and runs in background
 
@@ -1454,7 +1272,7 @@ fun TrainTimesScreen(
             }
 
             // Distance readout
-            DistanceReadout(gpsLat, gpsLon, debugLocation, onTrain, speed, bearing, distToLine)
+            DistanceReadout(gpsLat, gpsLon, debugLocation, onTrain, speed, bearing, distToLine, speed30s, speed3min, speed30min)
 
             if (error == null || trainData != null) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1596,6 +1414,8 @@ fun TrainDepartureRow(departure: TrainDeparture) {
         }
     }
 }
+
+fun Float.format(decimals: Int): String = "%.${decimals}f".format(this)
 
 fun formatTrainTime(time: String): String {
     return if (time.length >= 4) {
