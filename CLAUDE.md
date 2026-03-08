@@ -106,6 +106,10 @@ zip -j trains.zip trains.py && aws lambda update-function-code --function-name t
 python3 -m pytest test_trains.py -v
 ```
 
+## Related: busclock
+
+The `busclock` repo is a web prototype of the same K2 bus data displayed as an analog clock face. It predates T3 and calls TfL directly. Its future is undecided — see `busclock/CLAUDE.md`.
+
 ## Bus Stop NaPTAN IDs
 
 | Stop | NaPTAN ID | Direction |
