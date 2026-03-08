@@ -8,12 +8,5 @@ variable "function_name" {
   default = "t3"
 }
 
-variable "tfl_api_key" {
-  type        = string
-  description = "TfL API key (optional, for higher rate limits)"
-  default     = ""
-  sensitive   = true
-}
-
-# Darwin API key is now stored in AWS Secrets Manager (name: darwin-api-key)
-# No longer needed as a Terraform variable
+# TfL API key is stored in SSM Parameter Store at /berrylands/tfl-api-key
+# Darwin API key is stored in SSM Parameter Store at /berrylands/darwin-api-key

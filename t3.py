@@ -4,14 +4,32 @@ t3.py - Terse Transport Times
 A minimal Lambda function that returns expected bus arrival intervals for a specific stop.
 """
 
-import os
 import json
 import urllib.request
 from datetime import datetime, timezone
 
-
 TFL_API_BASE = "https://api.tfl.gov.uk"
 ROUTE = "K2"
+TFL_PARAMETER_NAME = "/berrylands/tfl-api-key"
+REGION = "eu-west-1"
+
+_cached_api_key = None
+
+
+def get_tfl_api_key():
+    """Get TfL API key from Parameter Store."""
+    global _cached_api_key
+    if _cached_api_key:
+        return _cached_api_key
+    try:
+        import boto3
+        client = boto3.client('ssm', region_name=REGION)
+        response = client.get_parameter(Name=TFL_PARAMETER_NAME, WithDecryption=True)
+        _cached_api_key = response['Parameter']['Value']
+        return _cached_api_key
+    except Exception as e:
+        print(f"Error fetching TfL API key from Parameter Store: {e}")
+        return None
 
 # Stop configurations: single direction per location for simplified commute
 # Morning: Parklands inbound → Surbiton
@@ -76,7 +94,7 @@ def fetch_arrivals_for_stop(stop_key, api_key=None):
 
 def lambda_handler(event, context):
     """AWS Lambda entry point."""
-    api_key = os.environ.get('TFL_API_KEY')
+    api_key = get_tfl_api_key()
 
     # Get stop from query params
     params = event.get('queryStringParameters') or {}

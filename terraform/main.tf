@@ -70,11 +70,7 @@ resource "aws_lambda_function" "t3" {
   timeout          = 10
   memory_size      = 128
 
-  environment {
-    variables = {
-      TFL_API_KEY = var.tfl_api_key
-    }
-  }
+  # No environment variables needed - Lambda fetches TfL API key from Parameter Store
 }
 
 # Zip the Lambda code
