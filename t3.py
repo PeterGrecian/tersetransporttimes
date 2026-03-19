@@ -79,7 +79,7 @@ def fetch_arrivals_for_stop(stop_key, api_key=None):
         return None, f"Failed to fetch arrivals: {e}"
 
     if not seconds:
-        return None, "No K2 buses found"
+        return {"stop": stop_config["name"], "destination": stop_config["destination"], "seconds": []}, None
 
     # Sort by time and limit to first 3
     seconds.sort()
