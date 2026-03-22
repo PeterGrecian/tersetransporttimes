@@ -17,7 +17,10 @@
    - Show outbound buses (towards Hook) from Parklands
 2. **When approaching Surbiton from Home**: Train to Waterloo is most relevant
    - Show trains from Surbiton to Waterloo
-3. **When at/near Waterloo**: Journey complete
+3. **When at/near Waterloo**: Tube vs bus to work
+   - If raining: Waterloo & City line to Bank
+   - If dry: Bus 26/76 from Waterloo (5 min slower but above ground)
+   - Weather from GCP Weather API
 
 ### Evening Commute (Work → Home)
 1. **When at/near Waterloo**: Train to Surbiton is most relevant
@@ -47,11 +50,28 @@
 ## Waterloo → Work leg (not yet implemented)
 
 The final leg of the commute: Waterloo to work (88 Wood St, EC2 area). Two options:
-- **Waterloo & City line** → Bank, then walk (~10 min journey, no changes)
-- **Bus 26 or 76** → Aldwych / City area (slower but above ground, no interchange)
 
-When near Waterloo in the morning, the app currently shows nothing useful for this leg.
-Needs: TfL Tube API (different from bus API), or bus arrivals for stops near Waterloo for routes 26/76.
+| Option | Route | Time | Notes |
+|---|---|---|---|
+| Waterloo & City line | → Bank, walk | ~10 min | Underground, no changes |
+| Bus 26 or 76 | → Aldwych / City | ~15 min | Above ground, no interchange |
+
+**Preference: bus when dry, tube when raining** — happy to spend 5 extra minutes above ground unless it's raining. T3 should show the preferred option prominently, with rain as the deciding factor.
+
+This is a good GCP entry point:
+- **GCP Weather API** — current precipitation at Waterloo postcode → is it raining?
+- **TfL Unified API** — bus arrivals for routes 26/76 from Waterloo stops; tube departures from W&C platform
+- **Decision logic** — if raining: highlight tube; if dry: highlight next bus; show both with a rain/dry indicator
+
+## Bus-train integration — good GCP entry point, tackle alongside Waterloo leg
+
+- [ ] Combined `/journey` Lambda: bus arrival at Parklands → catchable trains from Surbiton
+- [ ] Walk time Parklands bus stop → Surbiton platform: ~2 min, probably fine hardcoded
+- [ ] GCP Routes API for the Waterloo→work walk time (more variable, depends on which bus stop)
+- [ ] `/journey` endpoint calls bus + train Lambdas, filters trains by catchability, returns full chain
+
+Full door-to-door chain once complete:
+`K2 from Parklands → Surbiton train → Waterloo → (tube or bus, weather-dependent) → work`
 
 ## Multi-user / configurability
 
@@ -60,9 +80,4 @@ Currently all stops, routes and locations are hardcoded for one commute. To make
 - Main screen stays zero-interaction once configured
 - Tension: setup adds complexity, but only visited once
 - Not a priority until the app is stable and worth sharing
-
-## Bus-train integration - this is for much later when all the bugs are shaken out
-- [ ] Calculate from bus arrival time at Surbiton station + walk time which trains you can catch
-- [ ] t3.py (bus) and trains_darwin.py (trains) already run as separate Lambdas - could add a combined endpoint
-- [ ] Consider a single `/journey` endpoint that returns both and flags alternatives
 
