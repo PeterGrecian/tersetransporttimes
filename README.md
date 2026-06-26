@@ -1,6 +1,31 @@
-# TerseTransportTimes
+# TerseTransportTimes (T3)
 
-Android app for displaying transport times.
+A deliberately minimal, **zero-interaction** Android app for one specific
+commute. It doesn't show every bus and train in London — it shows only the
+handful I actually catch, and it works out *which* ones to show from GPS.
+
+Open it and the right information is already on screen:
+
+- **Near home** → the next K2 buses toward Surbiton station
+- **Near Surbiton** → buses the other way (toward home)
+- **Near / on the train at Waterloo** → the next Surbiton-bound trains home
+
+No menus, no settings, no stop-picking. Data refreshes every 30 seconds on
+its own. Tap a bus time to arm an alarm that re-sounds every 3 minutes as the
+bus approaches, then disarms itself.
+
+## How it works
+
+```
+Android app (Kotlin / Jetpack Compose)
+    ├── Bus times   → AWS Lambda (TfL Arrivals API)
+    └── Train times → AWS Lambda (National Rail Darwin API)
+```
+
+The app decides what to display purely from location — distance to a few
+known points (home stop, Surbiton, Waterloo) plus an on-train heuristic
+(moving fast and close to the Waterloo–Surbiton rail line). The two Lambdas
+keep the API keys server-side and hand the phone a tiny JSON payload.
 
 ## Build & Deploy (WSL2 to Physical Device)
 
