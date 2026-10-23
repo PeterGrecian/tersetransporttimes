@@ -78,6 +78,18 @@ const val SURBITON_LAT = 51.39374
 const val SURBITON_LON = -0.30411
 const val SURBITON_RADIUS_METERS = 400f
 
+// App version, read from the package at startup (pip's JDK has no javac, so the
+// generated build-config class is not an option). Shown in the readout and sent on
+// every API call so the Lambdas log which version is calling.
+var T3_VERSION = "?"
+var T3_USER_AGENT = "T3/?"
+fun initAppVersion(context: Context) {
+    val info = context.packageManager.getPackageInfo(context.packageName, 0)
+    val code = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) info.longVersionCode else info.versionCode.toLong()
+    T3_VERSION = info.versionName ?: "?"
+    T3_USER_AGENT = "T3/$T3_VERSION ($code; Android ${Build.VERSION.RELEASE})"
+}
+
 // Waterloo Station location
 const val WATERLOO_LAT = 51.5031
 const val WATERLOO_LON = -0.1132
@@ -273,6 +285,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        initAppVersion(this)
 
         // Request location permission, then start 30s polling loop
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
@@ -366,12 +379,15 @@ class MainActivity : ComponentActivity() {
                 userLat = location.latitude
                 userLon = location.longitude
                 locationMode = determineLocationMode(location.latitude, location.longitude)
+                GpsLog.fix(this, location, bearing, distToLine, onTrain, locationMode)
             } else {
                 android.util.Log.w("MainActivity", "GPS location is null")
+                GpsLog.event(this, "nofix", "null location")
                 locationMode = LocationMode.ELSEWHERE
             }
         }.addOnFailureListener { exception ->
             android.util.Log.e("MainActivity", "Failed to get GPS location", exception)
+            GpsLog.event(this, "nofix", exception.javaClass.simpleName)
             locationMode = LocationMode.ELSEWHERE
         }
     }
@@ -410,9 +426,11 @@ fun DistanceReadout(userLat: Double?, userLon: Double?, debugLocation: DebugLoca
         val s30  = speed30s?.format(1)  ?: (speed ?: 0f).format(1)
         val s3m  = speed3min?.format(1) ?: "--"
         val s30m = speed30min?.format(1) ?: "--"
-        val debugLine = "Speed: $s30 / $s3m / $s30m mph (30s/3m/30m)  |  Bearing: ${(bearing ?: 0f).format(0)}°"
+        val debugLine = "Speed: $s30 / $s3m / $s30m mph (30s/3m/30m)  |  Bearing: ${(bearing ?: 0f).format(0)}°  |  v$T3_VERSION"
 
-        Column {
+        val context = LocalContext.current
+        // Tap the readout to share the GPS log (GpsLog.kt)
+        Column(modifier = Modifier.clickable { context.startActivity(GpsLog.shareIntent(context)) }) {
             Text(
                 text = mainLine,
                 color = if (onTrain) Color(0xFFFF6600) else Color(0xFF666666),
@@ -430,7 +448,7 @@ fun DistanceReadout(userLat: Double?, userLon: Double?, debugLocation: DebugLoca
         // Show when location is not available
         android.util.Log.d("DistanceReadout", "No location available - GPS: ($userLat, $userLon), Mode: $debugLocation")
         Text(
-            text = "Location unavailable",
+            text = "Location unavailable  |  v$T3_VERSION",
             color = Color(0xFF666666),
             fontSize = 11.sp,
             modifier = Modifier.padding(top = 4.dp)
@@ -463,6 +481,13 @@ fun MainScreen(locationMode: LocationMode?, userLat: Double?, userLon: Double?,
 
     var selectedScreen by remember { mutableStateOf(getDefaultScreen()) }
     var userHasManuallySelectedScreen by remember { mutableStateOf(false) }
+
+    // Log every screen change, auto or manual, against the GPS trace
+    val logContext = LocalContext.current
+    LaunchedEffect(selectedScreen, userHasManuallySelectedScreen) {
+        GpsLog.event(logContext, "screen",
+            "${selectedScreen.route} ${if (userHasManuallySelectedScreen) "manual" else "auto"}")
+    }
 
     // Update selected screen when location changes (only if user hasn't manually selected)
     LaunchedEffect(userLat, userLon) {
@@ -1184,6 +1209,7 @@ private suspend fun fetchBusTimes(stop: String = "parklands"): BusData = withCon
     val request = Request.Builder()
         .url("https://vz66vhhtb9.execute-api.eu-west-1.amazonaws.com/t3?stop=$stop")
         .header("Accept", "application/json")
+        .header("User-Agent", T3_USER_AGENT)
         .build()
 
     client.newCall(request).execute().use { response ->
@@ -1485,6 +1511,7 @@ private suspend fun fetchTrainTimes(userLat: Double?, userLon: Double?): TrainDa
     val request = Request.Builder()
         .url("https://vz66vhhtb9.execute-api.eu-west-1.amazonaws.com/trains?from=$fromStation&to=$toStation")
         .header("Accept", "application/json")
+        .header("User-Agent", T3_USER_AGENT)
         .build()
 
     client.newCall(request).execute().use { response ->

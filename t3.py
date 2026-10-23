@@ -94,6 +94,8 @@ def fetch_arrivals_for_stop(stop_key, api_key=None):
 
 def lambda_handler(event, context):
     """AWS Lambda entry point."""
+    headers = {k.lower(): v for k, v in (event.get('headers') or {}).items()}
+    print(f"caller: {headers.get('user-agent', '-')} {event.get('path', '')} {event.get('queryStringParameters') or {}}")
     api_key = get_tfl_api_key()
 
     # Get stop from query params

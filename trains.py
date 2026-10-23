@@ -246,6 +246,8 @@ def format_json(departures, origin, destination):
 
 def lambda_handler(event, context):
     """AWS Lambda entry point."""
+    headers = {k.lower(): v for k, v in (event.get('headers') or {}).items()}
+    print(f"caller: {headers.get('user-agent', '-')} {event.get('path', '')} {event.get('queryStringParameters') or {}}")
     cors_headers = {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Headers': 'Content-Type,Accept',

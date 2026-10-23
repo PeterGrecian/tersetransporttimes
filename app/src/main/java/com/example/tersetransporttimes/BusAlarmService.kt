@@ -58,6 +58,7 @@ class BusAlarmService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        initAppVersion(this)
         createNotificationChannel()
     }
 
@@ -134,6 +135,7 @@ class BusAlarmService : Service() {
             val request = Request.Builder()
                 .url("https://vz66vhhtb9.execute-api.eu-west-1.amazonaws.com/t3?stop=$stop")
                 .header("Accept", "application/json")
+                .header("User-Agent", T3_USER_AGENT)
                 .build()
 
             client.newCall(request).execute().use { response ->

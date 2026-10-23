@@ -41,7 +41,7 @@
 
 ## Bug fixes
 
-- [ ] **500 on end-of-service**: When TfL returns no K2 buses (e.g. after midnight), `t3.py` returns HTTP 500 `{"error": "No K2 buses found"}`. Should return 200 with `{"seconds": []}`. Fix is in place locally (line 82), needs deploying.
+- [x] **500 on end-of-service**: When TfL returns no K2 buses (e.g. after midnight), `t3.py` returns HTTP 500 `{"error": "No K2 buses found"}`. Should return 200 with `{"seconds": []}`. Deployed 2026-10-23 (terraform, state now in S3).
 
 ## Performance optimizations
 - [ ] **Bus API efficiency**: Currently t3.py always fetches BOTH inbound and outbound bus times (2 TfL API calls), even when the app only displays one direction based on location. Could add a `direction` query parameter to only fetch what's needed and reduce API calls by 50%.
