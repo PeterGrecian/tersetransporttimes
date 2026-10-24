@@ -96,12 +96,17 @@ fun initAppVersion(context: Context) {
 const val WATERLOO_LAT = 51.5031
 const val WATERLOO_LON = -0.1132
 
+// Work: 88 Wood St (only used by the Work test location so far)
+const val WOOD_ST_LAT = 51.5163
+const val WOOD_ST_LON = -0.0937
+
 // Debug location override for train/bus times
 enum class DebugLocation {
     AUTO,      // Use actual GPS location
     HOME,      // Force Parklands
     SURBITON,  // Force Surbiton Station
-    WATERLOO   // Force Waterloo
+    WATERLOO,  // Force Waterloo
+    WORK       // Force 88 Wood St
 }
 
 // Location mode determines which stop and directions to show
@@ -396,6 +401,9 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+// Seconds before retrying a failed fetch (the "Don't Panic!" screen when nothing is cached)
+const val RETRY_SECONDS = 3
+
 // Alarm interval - sound alarm every 3 minutes before arrival
 const val ALARM_INTERVAL_SECONDS = 180 // 3 minutes
 
@@ -409,6 +417,7 @@ fun DistanceReadout(userLat: Double?, userLon: Double?, debugLocation: DebugLoca
         DebugLocation.HOME -> Pair(PARKLANDS_LAT, PARKLANDS_LON)
         DebugLocation.SURBITON -> Pair(SURBITON_LAT, SURBITON_LON)
         DebugLocation.WATERLOO -> Pair(WATERLOO_LAT, WATERLOO_LON)
+        DebugLocation.WORK -> Pair(WOOD_ST_LAT, WOOD_ST_LON)
         DebugLocation.AUTO -> Pair(userLat, userLon)
     }
 
@@ -528,6 +537,14 @@ fun MainScreen(locationMode: LocationMode?, userLat: Double?, userLon: Double?,
     var trainLastRefreshDurationMs by remember { mutableLongStateOf(0L) }
     var trainShowRefreshedMessage by remember { mutableStateOf(false) }
     var trainDebugLocation by remember { mutableStateOf(DebugLocation.AUTO) }
+    // The location override, shared by both screens (Auto = GPS)
+    var place by remember { mutableStateOf(Place.AUTO) }
+    LaunchedEffect(place) {
+        if (trainDebugLocation != place.debug) {
+            trainDebugLocation = place.debug
+            trainCountdown = 0
+        }
+    }
     var trainDataCache by remember { mutableStateOf<Map<DebugLocation, CachedTrainData>>(emptyMap()) }
     var trainDataAge by remember { mutableStateOf<Long?>(null) }
     var trainLastFetchTime by remember { mutableStateOf(0L) }
@@ -538,6 +555,7 @@ fun MainScreen(locationMode: LocationMode?, userLat: Double?, userLon: Double?,
             DebugLocation.HOME -> Pair(PARKLANDS_LAT, PARKLANDS_LON)
             DebugLocation.SURBITON -> Pair(SURBITON_LAT, SURBITON_LON)
             DebugLocation.WATERLOO -> Pair(WATERLOO_LAT, WATERLOO_LON)
+            DebugLocation.WORK -> Pair(WOOD_ST_LAT, WOOD_ST_LON)
             DebugLocation.AUTO -> Pair(userLat, userLon)
         }
     }
@@ -591,7 +609,7 @@ fun MainScreen(locationMode: LocationMode?, userLat: Double?, userLon: Double?,
                     trainError = e.message ?: "No connection"
                 }
                 trainIsLoading = false
-                trainCountdown = 10
+                trainCountdown = RETRY_SECONDS
             }
         }
     }
@@ -613,7 +631,7 @@ fun MainScreen(locationMode: LocationMode?, userLat: Double?, userLon: Double?,
         } catch (e: Exception) {
             trainError = e.message ?: "No connection"
             trainIsLoading = false
-            trainCountdown = 10
+            trainCountdown = RETRY_SECONDS
         }
     }
 
@@ -677,7 +695,10 @@ fun MainScreen(locationMode: LocationMode?, userLat: Double?, userLon: Double?,
                     distToLine = distToLine,
                     speed30s = speed30s,
                     speed3min = speed3min,
-                    speed30min = speed30min
+                    speed30min = speed30min,
+                    trainData = trainData,
+                    place = place,
+                    onPlaceChange = { place = it }
                 )
                 is Screen.Trains -> TrainTimesScreen(
                     gpsLat = userLat,
@@ -694,6 +715,8 @@ fun MainScreen(locationMode: LocationMode?, userLat: Double?, userLon: Double?,
                     lastRefreshDurationMs = trainLastRefreshDurationMs,
                     showRefreshedMessage = trainShowRefreshedMessage,
                     debugLocation = trainDebugLocation,
+                    place = place,
+                    onPlaceChange = { place = it },
                     dataAge = trainDataAge,
                     onDebugLocationChange = { newLoc ->
                         trainDebugLocation = newLoc
@@ -747,7 +770,10 @@ fun BusTimesScreen(
     distToLine: Float? = null,
     speed30s: Float? = null,
     speed3min: Float? = null,
-    speed30min: Float? = null
+    speed30min: Float? = null,
+    trainData: TrainData? = null,
+    place: Place = Place.AUTO,
+    onPlaceChange: (Place) -> Unit = {}
 ) {
     val context = LocalContext.current
     var busData by remember { mutableStateOf<BusData?>(null) }
@@ -768,6 +794,7 @@ fun BusTimesScreen(
             DebugLocation.HOME -> Pair(PARKLANDS_LAT, PARKLANDS_LON)
             DebugLocation.SURBITON -> Pair(SURBITON_LAT, SURBITON_LON)
             DebugLocation.WATERLOO -> Pair(WATERLOO_LAT, WATERLOO_LON)
+            DebugLocation.WORK -> Pair(WOOD_ST_LAT, WOOD_ST_LON)
             DebugLocation.AUTO -> Pair(userLat, userLon)
         }
 
@@ -775,6 +802,14 @@ fun BusTimesScreen(
             determineLocationMode(lat, lon)
         } else {
             locationMode ?: LocationMode.ELSEWHERE
+        }
+    }
+
+    // Keep this screen's location in step with the shared place
+    LaunchedEffect(place) {
+        if (debugLocation != place.debug) {
+            debugLocation = place.debug
+            countdown = 0
         }
     }
 
@@ -878,7 +913,7 @@ fun BusTimesScreen(
                     error = e.message ?: "No connection"
                 }
                 isLoading = false
-                countdown = 10
+                countdown = RETRY_SECONDS
             }
         }
     }
@@ -923,7 +958,7 @@ fun BusTimesScreen(
                     error = e.message ?: "No connection"
                 }
                 isLoading = false
-                countdown = 10
+                countdown = RETRY_SECONDS
             }
         }
     }
@@ -959,7 +994,7 @@ fun BusTimesScreen(
                 error = e.message ?: "No connection"
             }
             isLoading = false
-            countdown = 10
+            countdown = RETRY_SECONDS
         }
     }
 
@@ -989,54 +1024,7 @@ fun BusTimesScreen(
                 modifier = Modifier.padding(top = 16.dp)
             )
 
-            // Location control buttons
-            Row(
-                modifier = Modifier.padding(top = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // Only show Auto, Home, and SUR for buses (no Waterloo)
-                listOf(DebugLocation.AUTO, DebugLocation.HOME, DebugLocation.SURBITON).forEach { loc ->
-                    Button(
-                        onClick = {
-                            debugLocation = loc
-
-                            // Check if we have fresh cached data for this location
-                            val cached = dataCache[loc]
-                            if (cached != null) {
-                                val age = System.currentTimeMillis() - cached.timestamp
-                                currentDataAge = age
-
-                                if (age < 30_000) {
-                                    // Data is fresh, use it immediately
-                                    busData = adjustBusDataForAge(cached.data, age)
-                                    showRefreshedMessage = false  // Clear message to show we used cache
-                                    // Don't trigger refresh yet, let auto-refresh handle it
-                                } else {
-                                    // Data is stale, trigger immediate refresh
-                                    countdown = 0
-                                }
-                            } else {
-                                // No cached data, trigger immediate refresh
-                                countdown = 0
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (debugLocation == loc) Color(0xFF4A9EFF) else Color(0xFF2A2A2A)
-                        ),
-                        modifier = Modifier.height(32.dp)
-                    ) {
-                        Text(
-                            text = when(loc) {
-                                DebugLocation.AUTO -> "Auto"
-                                DebugLocation.HOME -> "Home"
-                                DebugLocation.SURBITON -> "SUR"
-                                DebugLocation.WATERLOO -> "WAT"
-                            },
-                            fontSize = 12.sp
-                        )
-                    }
-                }
-            }
+            PlaceSelector(place, onPlaceChange)
 
             // Distance readout
             DistanceReadout(userLat, userLon, debugLocation, onTrain, speed, bearing, distToLine, speed30s, speed3min, speed30min)
@@ -1096,44 +1084,51 @@ fun BusTimesScreen(
                     fontSize = 16.sp
                 )
             } else {
-                busData?.let { data ->
-                    DirectionSection(
-                        seconds = data.seconds,
-                        destination = data.destination,
-                        direction = "bus",
-                        armedBusKey = armedBusKey,
-                        isLoading = isLoading,
-                        onTimeBoxClick = { key, currentSeconds ->
-                            if (isAlarmRinging() || BusAlarmService.isRinging()) {
-                                stopAlarmSound()
-                                BusAlarmService.stopAlarm()
-                            } else if (armedBusKey == key) {
-                                onArmedBusKeyChange(null)
-                                onLastAlarmThresholdChange(Int.MAX_VALUE)
-                                stopAlarmSound()
-                                BusAlarmService.stopAlarm()
-                                context.stopService(Intent(context, BusAlarmService::class.java))
-                            } else {
-                                onArmedBusKeyChange(key)
-                                onArmedAtTimeChange(System.currentTimeMillis())
-                                val currentThreshold = (currentSeconds / ALARM_INTERVAL_SECONDS) * ALARM_INTERVAL_SECONDS
-                                val distanceToThreshold = currentSeconds - currentThreshold
-                                onLastAlarmThresholdChange(if (distanceToThreshold < 30) {
-                                    maxOf(0, currentThreshold - ALARM_INTERVAL_SECONDS)
-                                } else {
-                                    currentThreshold
-                                })
-                                stopAlarmSound()
+                // Tap a bus to arm/disarm its alarm (or silence a ringing one)
+                val onBusTap: (String, Int) -> Unit = { key, currentSeconds ->
+                    if (isAlarmRinging() || BusAlarmService.isRinging()) {
+                        stopAlarmSound()
+                        BusAlarmService.stopAlarm()
+                    } else if (armedBusKey == key) {
+                        onArmedBusKeyChange(null)
+                        onLastAlarmThresholdChange(Int.MAX_VALUE)
+                        stopAlarmSound()
+                        BusAlarmService.stopAlarm()
+                        context.stopService(Intent(context, BusAlarmService::class.java))
+                    } else {
+                        onArmedBusKeyChange(key)
+                        onArmedAtTimeChange(System.currentTimeMillis())
+                        val currentThreshold = (currentSeconds / ALARM_INTERVAL_SECONDS) * ALARM_INTERVAL_SECONDS
+                        val distanceToThreshold = currentSeconds - currentThreshold
+                        onLastAlarmThresholdChange(if (distanceToThreshold < 30) {
+                            maxOf(0, currentThreshold - ALARM_INTERVAL_SECONDS)
+                        } else {
+                            currentThreshold
+                        })
+                        stopAlarmSound()
 
-                                val serviceIntent = Intent(context, BusAlarmService::class.java).apply {
-                                    putExtra(BusAlarmService.EXTRA_STOP, stopParam)
-                                    putExtra(BusAlarmService.EXTRA_INDEX, key.toIntOrNull() ?: 0)
-                                    putExtra(BusAlarmService.EXTRA_INITIAL_SECONDS, currentSeconds)
-                                }
-                                context.startForegroundService(serviceIntent)
-                            }
+                        val serviceIntent = Intent(context, BusAlarmService::class.java).apply {
+                            putExtra(BusAlarmService.EXTRA_STOP, stopParam)
+                            putExtra(BusAlarmService.EXTRA_INDEX, key.toIntOrNull() ?: 0)
+                            putExtra(BusAlarmService.EXTRA_INITIAL_SECONDS, currentSeconds)
                         }
-                    )
+                        context.startForegroundService(serviceIntent)
+                    }
+                }
+                busData?.let { data ->
+                    val trains = trainData?.takeIf { it.destinationName.contains("Waterloo") }
+                    if (getEffectiveLocationMode() == LocationMode.NEAR_HOME && trains != null) {
+                        HomePlanView(planHome(data.seconds, trains.departures), armedBusKey, onBusTap, data.seconds)
+                    } else {
+                        DirectionSection(
+                            seconds = data.seconds,
+                            destination = data.destination,
+                            direction = "bus",
+                            armedBusKey = armedBusKey,
+                            isLoading = isLoading,
+                            onTimeBoxClick = onBusTap
+                        )
+                    }
                 }
             }
         }
@@ -1248,6 +1243,8 @@ fun TrainTimesScreen(
     lastRefreshDurationMs: Long,
     showRefreshedMessage: Boolean,
     debugLocation: DebugLocation,
+    place: Place = Place.AUTO,
+    onPlaceChange: (Place) -> Unit = {},
     dataAge: Long?,
     onDebugLocationChange: (DebugLocation) -> Unit,
     onTrain: Boolean = false,
@@ -1280,34 +1277,7 @@ fun TrainTimesScreen(
                 modifier = Modifier.padding(top = 16.dp)
             )
 
-            // Debug location buttons
-            Row(
-                modifier = Modifier.padding(top = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // Only show Auto, SUR, and WAT for trains (no Home)
-                listOf(DebugLocation.AUTO, DebugLocation.SURBITON, DebugLocation.WATERLOO).forEach { loc ->
-                    Button(
-                        onClick = {
-                            onDebugLocationChange(loc)  // Trigger immediate refresh via parent
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (debugLocation == loc) Color(0xFF4A9EFF) else Color(0xFF2A2A2A)
-                        ),
-                        modifier = Modifier.height(32.dp)
-                    ) {
-                        Text(
-                            text = when(loc) {
-                                DebugLocation.AUTO -> "Auto"
-                                DebugLocation.HOME -> "Home"
-                                DebugLocation.SURBITON -> "SUR"
-                                DebugLocation.WATERLOO -> "WAT"
-                            },
-                            fontSize = 12.sp
-                        )
-                    }
-                }
-            }
+            PlaceSelector(place, onPlaceChange)
 
             // Distance readout
             DistanceReadout(gpsLat, gpsLon, debugLocation, onTrain, speed, bearing, distToLine, speed30s, speed3min, speed30min)

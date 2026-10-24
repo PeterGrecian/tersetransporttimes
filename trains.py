@@ -47,7 +47,7 @@ def get_darwin_api_key():
         return None
 
 
-def soap_request(api_key, from_station, to_station, num_services=6):
+def soap_request(api_key, from_station, to_station, num_services=10):
     """Make SOAP request to Darwin API (ldb12, WSDL version 2021-11-01)."""
     soap_body = f'''<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
