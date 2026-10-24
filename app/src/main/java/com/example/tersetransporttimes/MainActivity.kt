@@ -82,6 +82,8 @@ const val SURBITON_RADIUS_METERS = 400f
 // generated build-config class is not an option). Shown in the readout and sent on
 // every API call so the Lambdas log which version is calling.
 var T3_VERSION = "?"
+// Set by MainActivity: take a GPS fix now instead of waiting for the 30 s poll
+var requestLocationNow: () -> Unit = {}
 var T3_USER_AGENT = "T3/?"
 fun initAppVersion(context: Context) {
     val info = context.packageManager.getPackageInfo(context.packageName, 0)
@@ -286,6 +288,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         initAppVersion(this)
+        requestLocationNow = { checkLocation() }
 
         // Request location permission, then start 30s polling loop
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
@@ -683,6 +686,11 @@ fun MainScreen(locationMode: LocationMode?, userLat: Double?, userLon: Double?,
                     isLoading = trainIsLoading,
                     error = trainError,
                     countdown = trainCountdown,
+                    onRefreshNow = {
+                        requestLocationNow()
+                        trainCountdown = 0
+                        GpsLog.event(logContext, "refresh", "trains")
+                    },
                     lastRefreshDurationMs = trainLastRefreshDurationMs,
                     showRefreshedMessage = trainShowRefreshedMessage,
                     debugLocation = trainDebugLocation,
@@ -1040,11 +1048,14 @@ fun BusTimesScreen(
                         text = if (showRefreshedMessage) {
                             "refreshed in ${formatRefreshDuration(lastRefreshDurationMs)}"
                         } else {
-                            "refresh in ${countdown}s"
+                            "refresh in ${countdown}s  ↻"
                         },
                         color = Color(0xFF888888),
                         fontSize = 14.sp,
-                        modifier = Modifier.padding(top = 8.dp)
+                        modifier = Modifier
+                            .clickable { // Tap to refresh now: fresh GPS fix and bus times
+                                requestLocationNow(); countdown = 0; GpsLog.event(context, "refresh", "bus") }
+                            .padding(top = 8.dp)
                     )
 
                     // Show staleness indicator if data is old
@@ -1245,7 +1256,8 @@ fun TrainTimesScreen(
     distToLine: Float? = null,
     speed30s: Float? = null,
     speed3min: Float? = null,
-    speed30min: Float? = null
+    speed30min: Float? = null,
+    onRefreshNow: () -> Unit = {}
 ) {
     // All state is now managed by parent (MainScreen) and runs in background
 
@@ -1306,11 +1318,14 @@ fun TrainTimesScreen(
                         text = if (showRefreshedMessage) {
                             "refreshed in ${formatRefreshDuration(lastRefreshDurationMs)}"
                         } else {
-                            "refresh in ${countdown}s"
+                            "refresh in ${countdown}s  ↻"
                         },
                         color = Color(0xFF888888),
                         fontSize = 14.sp,
-                        modifier = Modifier.padding(top = 8.dp)
+                        modifier = Modifier
+                            .clickable { // Tap to refresh now: fresh GPS fix and train times
+                                onRefreshNow() }
+                            .padding(top = 8.dp)
                     )
 
                     // Show staleness indicator if data is old
